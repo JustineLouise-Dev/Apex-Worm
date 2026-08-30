@@ -12,4 +12,4 @@ class_name = "ApexWormRoom"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["ApexWormRoom"]
+new_sqlite_classes = ["ApexWormRoom"]
