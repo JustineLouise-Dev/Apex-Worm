@@ -1,0 +1,14 @@
+{
+  "name": "apex-worm-game",
+  "version": "2.0.0",
+  "description": "Apex Worm - game worm.io style MULTIPLAYER REALTIME (WebSocket + Cloudflare Durable Objects), bisa dijalankan lokal (Termux) atau online",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "deploy": "wrangler deploy",
+    "build:worker": "node build-worker.js"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0"
+  }
+}
