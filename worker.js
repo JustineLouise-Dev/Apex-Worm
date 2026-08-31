@@ -13,8 +13,104 @@ const HTML_PAGE = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Apex Worm — Slither Battle</title>
-<style>
-  :root{
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="portrait">
+
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div style="color:var(--text-dim);font-size:13px;letter-spacing:1px;">MEMUAT APEX WORM...</div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+<div id="vignette"></div>
+<div id="edgeFlash"></div>
+
+<div id="hud">
+  <div id="scoreCard" class="hud-card">
+    <div id="ringWrap">
+      <svg viewBox="0 0 44 44">
+        <circle id="ringBg" cx="22" cy="22" r="18"></circle>
+        <circle id="ringFg" cx="22" cy="22" r="18" stroke-dasharray="113" stroke-dashoffset="113"></circle>
+      </svg>
+      <div id="rankBadge">#1</div>
+    </div>
+    <div id="scoreTextWrap">
+      <span id="scoreLabel">SKOR</span>
+      <span id="scoreValue">0</span>
+      <span id="lengthValue">Panjang: 0</span>
+    </div>
+  </div>
+  <div id="leaderboard" class="hud-card">
+    <h3>🏆 Peringkat</h3>
+    <div id="lbList"></div>
+  </div>
+</div>
+
+<div id="statusPills">
+  <div id="boostPill" class="pill"><span class="dot"></span>BOOST</div>
+</div>
+
+<div id="killFeed"></div>
+
+<div id="connStatus"><span class="conn-dot"></span><span id="connStatusText">Menghubungkan...</span></div>
+
+<div id="fpsCounter"><span id="fpsValue">60 FPS</span><span id="pingStat">-- ms</span></div>
+
+<div id="minimapWrap">
+  <canvas id="minimapCanvas" width="112" height="112"></canvas>
+</div>
+
+<div id="joystickZone">
+  <div id="joystickBase">
+    <div id="joystickStick"></div>
+  </div>
+</div>
+
+<div id="boostBtn" style="--boost-pct:100">
+  <svg viewBox="0 0 24 24"><path d="M13 2L3 14h7v8l10-12h-7z"/></svg>
+</div>
+
+<div id="startScreen" class="overlay">
+  <div class="panel-box">
+    <div class="logo"><span class="logo-icon">🐍</span>APEX WORM</div>
+    <div class="subtitle">Makan, tumbuh, kuasai arena — melawan pemain asli!</div>
+    <div class="menu-credit">Created by Justine Louise</div>
+    <input id="nameInput" type="text" placeholder="Masukkan nama kamu" maxlength="14">
+    <div class="section-label">Pilih Warna</div>
+    <div class="color-row" id="colorRow"></div>
+    <button id="playBtn">▶ MAIN SEKARANG</button>
+    <div class="hint-grid">
+      <div class="hint-item"><span class="hi-icon">🕹️</span>Joystick untuk arahkan ular</div>
+      <div class="hint-item"><span class="hi-icon">⚡</span>Tombol boost untuk lari cepat</div>
+      <div class="hint-item"><span class="hi-icon">🌀</span>Badan sendiri &amp; tembok aman dilewati</div>
+    </div>
+  </div>
+</div>
+
+<div id="deathScreen" class="overlay hidden">
+  <div class="panel-box">
+    <div id="deathIconWrap">💀</div>
+    <div id="newRecordBadge">🏅 REKOR BARU!</div>
+    <div id="deathTitle">Permainan Berakhir</div>
+    <div id="deathCause">Ditabrak oleh ular lain</div>
+    <div id="deathStatsGrid">
+      <div class="stat-box"><div class="stat-num" id="statLength">0</div><div class="stat-lbl">Panjang</div></div>
+      <div class="stat-box"><div class="stat-num" id="statRank">-</div><div class="stat-lbl">Peringkat</div></div>
+      <div class="stat-box wide"><div class="stat-num" id="statScore">0</div><div class="stat-lbl">Skor Akhir</div></div>
+    </div>
+    <button id="respawnBtn">🔄 MAIN LAGI</button>
+    <button id="menuBtn">Kembali ke Menu</button>
+  </div>
+</div>
+
+<div id="footerCredit">Created by Justine Louise</div>
+
+<script src="/app.js" defer></script>
+</body>
+</html>
+`;
+const CSS_PAGE = `  :root{
     --bg-1:#070a12;
     --bg-2:#0f1626;
     --accent:#39ff88;
@@ -89,18 +185,26 @@ const HTML_PAGE = `<!DOCTYPE html>
   #leaderboard{
     width:172px;padding:10px 12px;
     display:flex;flex-direction:column;gap:5px;
+    /* Leaderboard tampil transparan (tanpa kotak panel), berbeda dari
+       hud-card lain, supaya lebih menyatu dengan arena permainan. */
+    background:transparent;
+    border:none;
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    box-shadow:none;
   }
   #leaderboard h3{
     font-size:10.5px;color:var(--text-dim);letter-spacing:1.2px;text-transform:uppercase;
     margin-bottom:2px;font-weight:700;display:flex;align-items:center;gap:5px;
+    text-shadow:0 1px 4px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,0.6);
   }
   .lb-row{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:2px 0;border-radius:6px;transition:background .2s;}
-  .lb-rank{width:14px;color:var(--text-dim);font-weight:800;font-size:11px;}
+  .lb-rank{width:14px;color:var(--text-dim);font-weight:800;font-size:11px;text-shadow:0 1px 4px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,0.6);}
   .lb-row:nth-child(1) .lb-rank{color:var(--gold);}
-  .lb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;box-shadow:0 0 6px currentColor;}
-  .lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
-  .lb-score{color:var(--text-dim);font-variant-numeric:tabular-nums;font-size:11.5px;}
-  .lb-row.me{background:rgba(57,255,136,0.1);}
+  .lb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;box-shadow:0 0 6px currentColor, 0 0 3px rgba(0,0,0,0.8);}
+  .lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);text-shadow:0 1px 4px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,0.6);}
+  .lb-score{color:var(--text-dim);font-variant-numeric:tabular-nums;font-size:11.5px;text-shadow:0 1px 4px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,0.6);}
+  .lb-row.me{background:rgba(57,255,136,0.12);border-radius:8px;}
   .lb-row.me .lb-name{color:var(--accent);font-weight:700;}
 
   #statusPills{
@@ -385,101 +489,8 @@ const HTML_PAGE = `<!DOCTYPE html>
 
   ::selection{background:transparent;}
   ::-webkit-scrollbar{width:0;height:0;}
-</style>
-</head>
-<body class="portrait">
-
-<div id="loadingScreen">
-  <div class="spinner"></div>
-  <div style="color:var(--text-dim);font-size:13px;letter-spacing:1px;">MEMUAT APEX WORM...</div>
-</div>
-
-<canvas id="gameCanvas"></canvas>
-<div id="vignette"></div>
-<div id="edgeFlash"></div>
-
-<div id="hud">
-  <div id="scoreCard" class="hud-card">
-    <div id="ringWrap">
-      <svg viewBox="0 0 44 44">
-        <circle id="ringBg" cx="22" cy="22" r="18"></circle>
-        <circle id="ringFg" cx="22" cy="22" r="18" stroke-dasharray="113" stroke-dashoffset="113"></circle>
-      </svg>
-      <div id="rankBadge">#1</div>
-    </div>
-    <div id="scoreTextWrap">
-      <span id="scoreLabel">SKOR</span>
-      <span id="scoreValue">0</span>
-      <span id="lengthValue">Panjang: 0</span>
-    </div>
-  </div>
-  <div id="leaderboard" class="hud-card">
-    <h3>🏆 Peringkat</h3>
-    <div id="lbList"></div>
-  </div>
-</div>
-
-<div id="statusPills">
-  <div id="boostPill" class="pill"><span class="dot"></span>BOOST</div>
-</div>
-
-<div id="killFeed"></div>
-
-<div id="connStatus"><span class="conn-dot"></span><span id="connStatusText">Menghubungkan...</span></div>
-
-<div id="fpsCounter"><span id="fpsValue">60 FPS</span><span id="pingStat">-- ms</span></div>
-
-<div id="minimapWrap">
-  <canvas id="minimapCanvas" width="112" height="112"></canvas>
-</div>
-
-<div id="joystickZone">
-  <div id="joystickBase">
-    <div id="joystickStick"></div>
-  </div>
-</div>
-
-<div id="boostBtn" style="--boost-pct:100">
-  <svg viewBox="0 0 24 24"><path d="M13 2L3 14h7v8l10-12h-7z"/></svg>
-</div>
-
-<div id="startScreen" class="overlay">
-  <div class="panel-box">
-    <div class="logo"><span class="logo-icon">🐍</span>APEX WORM</div>
-    <div class="subtitle">Makan, tumbuh, kuasai arena — melawan pemain asli!</div>
-    <div class="menu-credit">Created by Justine Louise</div>
-    <input id="nameInput" type="text" placeholder="Masukkan nama kamu" maxlength="14">
-    <div class="section-label">Pilih Warna</div>
-    <div class="color-row" id="colorRow"></div>
-    <button id="playBtn">▶ MAIN SEKARANG</button>
-    <div class="hint-grid">
-      <div class="hint-item"><span class="hi-icon">🕹️</span>Joystick untuk arahkan ular</div>
-      <div class="hint-item"><span class="hi-icon">⚡</span>Tombol boost untuk lari cepat</div>
-      <div class="hint-item"><span class="hi-icon">🌀</span>Badan sendiri &amp; tembok aman dilewati</div>
-    </div>
-  </div>
-</div>
-
-<div id="deathScreen" class="overlay hidden">
-  <div class="panel-box">
-    <div id="deathIconWrap">💀</div>
-    <div id="newRecordBadge">🏅 REKOR BARU!</div>
-    <div id="deathTitle">Permainan Berakhir</div>
-    <div id="deathCause">Ditabrak oleh ular lain</div>
-    <div id="deathStatsGrid">
-      <div class="stat-box"><div class="stat-num" id="statLength">0</div><div class="stat-lbl">Panjang</div></div>
-      <div class="stat-box"><div class="stat-num" id="statRank">-</div><div class="stat-lbl">Peringkat</div></div>
-      <div class="stat-box wide"><div class="stat-num" id="statScore">0</div><div class="stat-lbl">Skor Akhir</div></div>
-    </div>
-    <button id="respawnBtn">🔄 MAIN LAGI</button>
-    <button id="menuBtn">Kembali ke Menu</button>
-  </div>
-</div>
-
-<div id="footerCredit">Created by Justine Louise</div>
-
-<script>
-(function(){
+`;
+const JS_PAGE = `(function(){
 "use strict";
 
 /* =========================================================
@@ -526,10 +537,18 @@ resize();
 
 function rand(a,b){ return a + Math.random()*(b-a); }
 function dist2(x1,y1,x2,y2){ const dx=x1-x2, dy=y1-y2; return dx*dx+dy*dy; }
+// Sama seperti nama bot di server: dirakit dari beberapa pola berbeda
+// (bukan cuma Sifat+Hewan) supaya terasa lebih seperti nama pemain asli.
 function randomName(){
-  const adjs=["Cepat","Ganas","Licin","Lapar","Kejam","Gesit","Buas","Nakal","Sakti","Hebat"];
-  const nouns=["Naga","Ular","Cobra","Viper","Mamba","Python","Boa","Raja","Petir","Badai"];
-  return adjs[Math.floor(Math.random()*adjs.length)]+nouns[Math.floor(Math.random()*nouns.length)];
+  const titles=["Sang","Raja","Ratu","Master","Legenda","Fajar","Senja"];
+  const names1=["Raka","Bayu","Dewa","Arka","Kirana","Zaki","Nara","Ardan","Vino","Elang","Rangga","Satria"];
+  const adjs=["Kilat","Bara","Petir","Badai","Senja","Gaib","Abadi","Liar","Merah","Emas"];
+  const nouns=["Naga","Cobra","Mamba","Python","Anaconda","Basilisk","Serpent","Wyrm"];
+  const pattern = Math.floor(Math.random()*4);
+  if(pattern===0) return titles[Math.floor(Math.random()*titles.length)]+" "+names1[Math.floor(Math.random()*names1.length)];
+  if(pattern===1) return names1[Math.floor(Math.random()*names1.length)]+nouns[Math.floor(Math.random()*nouns.length)];
+  if(pattern===2) return adjs[Math.floor(Math.random()*adjs.length)]+nouns[Math.floor(Math.random()*nouns.length)];
+  return names1[Math.floor(Math.random()*names1.length)]+String(Math.floor(10+Math.random()*89));
 }
 function escapeHtml(s){
   return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -700,15 +719,21 @@ let foodById = new Map(); // persistent food state, kept in sync via add/remove 
 let snapshotHistory = []; // [{recvTime, worms: Map}, ...] oldest..newest, capped
 const SNAPSHOT_HISTORY_MAX = 8;
 let snapshotIntervalEst = 50; // running estimate of ms between snapshots (~1000/TICK_HZ)
+let snapshotJitterEst = 0;    // running estimate of how much the gap between snapshots varies
 let lastSnapshotRecvTime = 0;
-const INTERP_DELAY_MIN = 80;  // ms of deliberate render lag, floor
-const INTERP_DELAY_MAX = 220; // ms of deliberate render lag, ceiling (caps out on bad connections)
+const INTERP_DELAY_MIN = 30;  // ms of deliberate render lag, floor — kept small so play feels real-time
+const INTERP_DELAY_MAX = 220; // ms of deliberate render lag, ceiling (caps out on bad/jittery connections)
 
 function currentInterpDelay(){
-  // Scale the render delay with measured ping so laggier connections get a
-  // bigger safety buffer (fewer stutters) while good connections stay snappy.
-  const pingPart = pingSmoothed ? pingSmoothed * 0.5 : 0;
-  return Math.max(INTERP_DELAY_MIN, Math.min(INTERP_DELAY_MAX, snapshotIntervalEst * 1.5 + pingPart));
+  // The delay only needs to cover actual network jitter, not the full tick
+  // interval — on a clean connection consecutive snapshots arrive close to
+  // exactly on schedule, so a small fixed floor plus a jitter-proportional
+  // term keeps rendering close to real time. On a rougher connection,
+  // jitter (and ping) push the delay up automatically so we still avoid
+  // extrapolating past a stale snapshot.
+  const jitterPart = snapshotJitterEst * 2.5;
+  const pingPart = pingSmoothed ? pingSmoothed * 0.35 : 0;
+  return Math.max(INTERP_DELAY_MIN, Math.min(INTERP_DELAY_MAX, jitterPart + pingPart));
 }
 
 function unpackSegs(flat){
@@ -735,7 +760,15 @@ function applySnapshot(snap){
   const now = performance.now();
   if(lastSnapshotRecvTime){
     const gap = now - lastSnapshotRecvTime;
-    if(gap > 0 && gap < 500) snapshotIntervalEst += (gap - snapshotIntervalEst) * 0.15;
+    if(gap > 0 && gap < 500){
+      snapshotIntervalEst += (gap - snapshotIntervalEst) * 0.15;
+      // Track how much each gap deviates from the expected interval — this
+      // is the actual signal we want to size the render delay against,
+      // rather than the raw interval itself (which is ~constant at 50ms
+      // regardless of how jittery the network is).
+      const deviation = Math.abs(gap - snapshotIntervalEst);
+      snapshotJitterEst += (deviation - snapshotJitterEst) * 0.2;
+    }
   }
   lastSnapshotRecvTime = now;
 
@@ -801,19 +834,56 @@ function blendWormMaps(prevById, nextById, t){
   return out;
 }
 
-// Produces a smoothly blended array of worms for rendering. Instead of
-// always interpolating toward the very latest snapshot (which stutters the
-// instant a packet arrives a bit late), we pick a render timestamp slightly
-// in the past and find the two buffered snapshots that straddle it. As long
-// as the interpolation delay comfortably exceeds normal network jitter,
-// we're blending between two *real* snapshots almost all the time instead
-// of extrapolating from a stale one.
+// Given the two most recent snapshots, projects every worm's position
+// forward (or to any blend factor t, where t=1 is exactly the latest
+// snapshot and t>1 extrapolates beyond it) based on the velocity implied by
+// those two snapshots. Shared by extrapolateOwnWorm() and by
+// interpolateWorms()'s low-delay fallback below. Capped by the caller so a
+// late/missing snapshot just pauses briefly instead of overshooting.
+function extrapolateWormMap(prevById, nextById, t){
+  const out = [];
+  for(const [id, nw] of nextById){
+    const pw = prevById.get(id);
+    if(!pw || !pw.alive || !nw.alive || pw.segs.length !== nw.segs.length){
+      out.push(nw);
+      continue;
+    }
+    const segs = new Array(nw.segs.length);
+    for(let i=0;i<nw.segs.length;i++){
+      const vx = nw.segs[i].x - pw.segs[i].x;
+      const vy = nw.segs[i].y - pw.segs[i].y;
+      segs[i] = { x: nw.segs[i].x + vx * (t - 1), y: nw.segs[i].y + vy * (t - 1) };
+    }
+    out.push({ ...nw, segs, angle: lerpAngleShort(pw.angle, nw.angle, t) });
+  }
+  return out;
+}
+
+// Produces a smoothly blended array of worms for rendering. We pick a
+// render timestamp slightly in the past (currentInterpDelay(), sized to
+// actual measured jitter) and find the two buffered snapshots that
+// straddle it, blending real data between them — this keeps play close to
+// real time on a clean connection while still smoothing out jitter. If the
+// render time is newer than our latest snapshot (common when the delay is
+// small and the connection is fast), we extrapolate forward a short,
+// capped amount instead of freezing on the last snapshot.
 function interpolateWorms(){
   const n = snapshotHistory.length;
   if(n === 0) return [];
   if(n === 1) return Array.from(snapshotHistory[0].worms.values());
 
   const renderTime = performance.now() - currentInterpDelay();
+  const latest = snapshotHistory[n-1];
+
+  if(renderTime >= latest.recvTime){
+    const prev = snapshotHistory[n-2];
+    const dt = latest.recvTime - prev.recvTime;
+    if(dt <= 0) return Array.from(latest.worms.values());
+    // extrapolate at most one server-tick-worth forward to avoid runaway
+    // overshoot if a snapshot is late or drops
+    const exT = 1 + Math.max(0, Math.min((renderTime - latest.recvTime) / dt, 1));
+    return extrapolateWormMap(prev.worms, latest.worms, exT);
+  }
 
   // find the newest pair [a,b] with a.recvTime <= renderTime <= b.recvTime
   let a = snapshotHistory[0], b = snapshotHistory[0];
@@ -826,8 +896,6 @@ function interpolateWorms(){
   }
   if(renderTime <= snapshotHistory[0].recvTime){
     a = b = snapshotHistory[0];
-  } else if(renderTime >= snapshotHistory[n-1].recvTime){
-    a = b = snapshotHistory[n-1];
   }
 
   if(a === b) return Array.from(a.worms.values());
@@ -1418,9 +1486,6 @@ connectWS();
 requestAnimationFrame(gameLoop);
 
 })();
-</script>
-</body>
-</html>
 `;
 
 /**
@@ -1452,15 +1517,38 @@ const PALETTE = [
   "#ff6b3d", "#3dffea", "#ff3d3d", "#8bff3d", "#3d7bff"
 ];
 
-const BOT_ADJ = ["Cepat", "Ganas", "Licin", "Lapar", "Kejam", "Gesit", "Buas", "Nakal", "Sakti", "Hebat"];
-const BOT_NOUN = ["Naga", "Ular", "Cobra", "Viper", "Mamba", "Python", "Boa", "Raja", "Petir", "Badai"];
+// Nama bot dirakit dari beberapa pola berbeda supaya terasa seperti nama
+// pemain asli, bukan kombinasi "Sifat+Hewan" yang berulang dan monoton.
+const BOT_TITLE = ["Sang", "Raja", "Ratu", "Master", "Legenda", "Fajar", "Senja"];
+const BOT_NAME1 = ["Raka", "Bayu", "Dewa", "Arka", "Kirana", "Zaki", "Nara", "Ardan", "Vino", "Elang", "Rangga", "Satria"];
+const BOT_ADJ = ["Kilat", "Bara", "Petir", "Badai", "Senja", "Gaib", "Abadi", "Liar", "Merah", "Emas"];
+const BOT_NOUN = ["Naga", "Cobra", "Mamba", "Python", "Anaconda", "Basilisk", "Serpent", "Wyrm"];
+const BOT_SUFFIX_NUM = () => String(Math.floor(10 + Math.random() * 89));
 
 function rand(a, b) { return a + Math.random() * (b - a); }
 function dist2(x1, y1, x2, y2) { const dx = x1 - x2, dy = y1 - y2; return dx * dx + dy * dy; }
 function clampAngleDiff(a, b) { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; }
 function lerpAngle(a, b, t) { const d = clampAngleDiff(a, b); return a + d * t; }
+
 function randomBotName() {
-  return BOT_ADJ[Math.floor(Math.random() * BOT_ADJ.length)] + BOT_NOUN[Math.floor(Math.random() * BOT_NOUN.length)];
+  const pattern = Math.floor(Math.random() * 4);
+  if (pattern === 0) {
+    // Pola: Gelar + Nama depan -> "Sang Rangga", "Master Kirana"
+    return BOT_TITLE[Math.floor(Math.random() * BOT_TITLE.length)] + " " +
+      BOT_NAME1[Math.floor(Math.random() * BOT_NAME1.length)];
+  }
+  if (pattern === 1) {
+    // Pola: Nama depan + Hewan -> "RakaCobra", "ZakiMamba"
+    return BOT_NAME1[Math.floor(Math.random() * BOT_NAME1.length)] +
+      BOT_NOUN[Math.floor(Math.random() * BOT_NOUN.length)];
+  }
+  if (pattern === 2) {
+    // Pola: Sifat + Hewan -> "KilatNaga", "BaraCobra"
+    return BOT_ADJ[Math.floor(Math.random() * BOT_ADJ.length)] +
+      BOT_NOUN[Math.floor(Math.random() * BOT_NOUN.length)];
+  }
+  // Pola: Nama depan + angka gamer -> "Rangga27", "Elang84"
+  return BOT_NAME1[Math.floor(Math.random() * BOT_NAME1.length)] + BOT_SUFFIX_NUM();
 }
 function safeName(name) {
   const cleaned = String(name || '').replace(/[<>]/g, '').trim().slice(0, 14);
@@ -1881,6 +1969,24 @@ export default {
       return new Response(HTML_PAGE, {
         headers: {
           "content-type": "text/html; charset=UTF-8",
+          "cache-control": "public, max-age=300",
+        },
+      });
+    }
+
+    if (url.pathname === "/style.css") {
+      return new Response(CSS_PAGE, {
+        headers: {
+          "content-type": "text/css; charset=UTF-8",
+          "cache-control": "public, max-age=300",
+        },
+      });
+    }
+
+    if (url.pathname === "/app.js") {
+      return new Response(JS_PAGE, {
+        headers: {
+          "content-type": "text/javascript; charset=UTF-8",
           "cache-control": "public, max-age=300",
         },
       });

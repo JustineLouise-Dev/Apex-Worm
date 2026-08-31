@@ -8,6 +8,8 @@
  */
 
 const HTML_PAGE = `__INDEX_HTML__`;
+const CSS_PAGE = `__STYLE_CSS__`;
+const JS_PAGE = `__APP_JS__`;
 
 __GAME_ENGINE__
 
@@ -27,6 +29,24 @@ export default {
       return new Response(HTML_PAGE, {
         headers: {
           "content-type": "text/html; charset=UTF-8",
+          "cache-control": "public, max-age=300",
+        },
+      });
+    }
+
+    if (url.pathname === "/style.css") {
+      return new Response(CSS_PAGE, {
+        headers: {
+          "content-type": "text/css; charset=UTF-8",
+          "cache-control": "public, max-age=300",
+        },
+      });
+    }
+
+    if (url.pathname === "/app.js") {
+      return new Response(JS_PAGE, {
+        headers: {
+          "content-type": "text/javascript; charset=UTF-8",
           "cache-control": "public, max-age=300",
         },
       });

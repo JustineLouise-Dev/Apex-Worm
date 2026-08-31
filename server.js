@@ -20,7 +20,7 @@ const miniWS = require('./mini-ws.js');
 const { GameRoom, TICK_MS, safeName } = require('./game-engine.js');
 
 const PORT = process.env.PORT || 8787;
-const ROOT = __dirname;
+const ROOT = path.join(__dirname, 'public');
 
 const MIME = {
   '.html': 'text/html; charset=UTF-8',

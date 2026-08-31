@@ -27,15 +27,38 @@ const PALETTE = [
   "#ff6b3d", "#3dffea", "#ff3d3d", "#8bff3d", "#3d7bff"
 ];
 
-const BOT_ADJ = ["Cepat", "Ganas", "Licin", "Lapar", "Kejam", "Gesit", "Buas", "Nakal", "Sakti", "Hebat"];
-const BOT_NOUN = ["Naga", "Ular", "Cobra", "Viper", "Mamba", "Python", "Boa", "Raja", "Petir", "Badai"];
+// Nama bot dirakit dari beberapa pola berbeda supaya terasa seperti nama
+// pemain asli, bukan kombinasi "Sifat+Hewan" yang berulang dan monoton.
+const BOT_TITLE = ["Sang", "Raja", "Ratu", "Master", "Legenda", "Fajar", "Senja"];
+const BOT_NAME1 = ["Raka", "Bayu", "Dewa", "Arka", "Kirana", "Zaki", "Nara", "Ardan", "Vino", "Elang", "Rangga", "Satria"];
+const BOT_ADJ = ["Kilat", "Bara", "Petir", "Badai", "Senja", "Gaib", "Abadi", "Liar", "Merah", "Emas"];
+const BOT_NOUN = ["Naga", "Cobra", "Mamba", "Python", "Anaconda", "Basilisk", "Serpent", "Wyrm"];
+const BOT_SUFFIX_NUM = () => String(Math.floor(10 + Math.random() * 89));
 
 function rand(a, b) { return a + Math.random() * (b - a); }
 function dist2(x1, y1, x2, y2) { const dx = x1 - x2, dy = y1 - y2; return dx * dx + dy * dy; }
 function clampAngleDiff(a, b) { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; }
 function lerpAngle(a, b, t) { const d = clampAngleDiff(a, b); return a + d * t; }
+
 function randomBotName() {
-  return BOT_ADJ[Math.floor(Math.random() * BOT_ADJ.length)] + BOT_NOUN[Math.floor(Math.random() * BOT_NOUN.length)];
+  const pattern = Math.floor(Math.random() * 4);
+  if (pattern === 0) {
+    // Pola: Gelar + Nama depan -> "Sang Rangga", "Master Kirana"
+    return BOT_TITLE[Math.floor(Math.random() * BOT_TITLE.length)] + " " +
+      BOT_NAME1[Math.floor(Math.random() * BOT_NAME1.length)];
+  }
+  if (pattern === 1) {
+    // Pola: Nama depan + Hewan -> "RakaCobra", "ZakiMamba"
+    return BOT_NAME1[Math.floor(Math.random() * BOT_NAME1.length)] +
+      BOT_NOUN[Math.floor(Math.random() * BOT_NOUN.length)];
+  }
+  if (pattern === 2) {
+    // Pola: Sifat + Hewan -> "KilatNaga", "BaraCobra"
+    return BOT_ADJ[Math.floor(Math.random() * BOT_ADJ.length)] +
+      BOT_NOUN[Math.floor(Math.random() * BOT_NOUN.length)];
+  }
+  // Pola: Nama depan + angka gamer -> "Rangga27", "Elang84"
+  return BOT_NAME1[Math.floor(Math.random() * BOT_NAME1.length)] + BOT_SUFFIX_NUM();
 }
 function safeName(name) {
   const cleaned = String(name || '').replace(/[<>]/g, '').trim().slice(0, 14);

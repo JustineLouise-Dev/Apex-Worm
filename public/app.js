@@ -1,475 +1,3 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Apex Worm — Slither Battle</title>
-<style>
-  :root{
-    --bg-1:#070a12;
-    --bg-2:#0f1626;
-    --accent:#39ff88;
-    --accent-dark:#16c96a;
-    --accent2:#00d4ff;
-    --accent3:#ff3d81;
-    --gold:#ffd23f;
-    --panel:rgba(15,20,34,0.68);
-    --panel-solid:#131b2e;
-    --panel-border:rgba(255,255,255,0.09);
-    --text:#eaf1ff;
-    --text-dim:#8fa0bd;
-    --danger:#ff4757;
-  }
-  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:none;}
-  html,body{
-    width:100%;height:100%;overflow:hidden;
-    background:radial-gradient(ellipse at center, var(--bg-2) 0%, var(--bg-1) 100%);
-    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
-    color:var(--text);
-    position:fixed;inset:0;
-  }
-  #gameCanvas{position:absolute;inset:0;display:block;background:#070a12;}
-
-  #vignette{
-    position:absolute;inset:0;pointer-events:none;
-    background:radial-gradient(ellipse at center, transparent 38%, rgba(0,0,0,0.62) 100%);
-    z-index:5;
-  }
-  #edgeFlash{
-    position:absolute;inset:0;pointer-events:none;z-index:6;
-    opacity:0;
-    background:radial-gradient(ellipse at center, transparent 55%, rgba(255,140,60,0.5) 100%);
-    transition:opacity .18s ease;
-  }
-  #edgeFlash.show{opacity:1;}
-
-  #hud{
-    position:absolute;top:0;left:0;right:0;
-    display:flex;justify-content:space-between;align-items:flex-start;
-    padding:14px 14px;pointer-events:none;z-index:10;
-    gap:10px;
-  }
-  .hud-card{
-    background:var(--panel);
-    border:1px solid var(--panel-border);
-    backdrop-filter:blur(14px);
-    -webkit-backdrop-filter:blur(14px);
-    border-radius:16px;
-    box-shadow:0 6px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
-  }
-
-  #scoreCard{
-    display:flex;align-items:center;gap:10px;
-    padding:8px 16px 8px 8px;
-    min-width:150px;
-  }
-  #ringWrap{position:relative;width:44px;height:44px;flex-shrink:0;}
-  #ringWrap svg{width:44px;height:44px;transform:rotate(-90deg);}
-  #ringWrap circle{fill:none;stroke-width:4;}
-  #ringBg{stroke:rgba(255,255,255,0.08);}
-  #ringFg{stroke:var(--accent);stroke-linecap:round;filter:drop-shadow(0 0 4px rgba(57,255,136,0.7));transition:stroke-dashoffset .25s ease;}
-  #rankBadge{
-    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    font-size:12px;font-weight:800;color:var(--accent);
-  }
-  #scoreTextWrap{display:flex;flex-direction:column;gap:1px;}
-  #scoreLabel{font-size:10px;color:var(--text-dim);letter-spacing:1.2px;text-transform:uppercase;font-weight:600;}
-  #scoreValue{font-size:24px;font-weight:800;color:var(--text);letter-spacing:-0.5px;line-height:1.1;font-variant-numeric:tabular-nums;}
-  #lengthValue{font-size:11px;color:var(--accent);font-weight:600;}
-
-  #leaderboard{
-    width:172px;padding:10px 12px;
-    display:flex;flex-direction:column;gap:5px;
-  }
-  #leaderboard h3{
-    font-size:10.5px;color:var(--text-dim);letter-spacing:1.2px;text-transform:uppercase;
-    margin-bottom:2px;font-weight:700;display:flex;align-items:center;gap:5px;
-  }
-  .lb-row{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:2px 0;border-radius:6px;transition:background .2s;}
-  .lb-rank{width:14px;color:var(--text-dim);font-weight:800;font-size:11px;}
-  .lb-row:nth-child(1) .lb-rank{color:var(--gold);}
-  .lb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;box-shadow:0 0 6px currentColor;}
-  .lb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
-  .lb-score{color:var(--text-dim);font-variant-numeric:tabular-nums;font-size:11.5px;}
-  .lb-row.me{background:rgba(57,255,136,0.1);}
-  .lb-row.me .lb-name{color:var(--accent);font-weight:700;}
-
-  #statusPills{
-    position:absolute;top:78px;left:14px;z-index:10;
-    display:flex;flex-direction:column;gap:6px;pointer-events:none;
-  }
-  .pill{
-    display:flex;align-items:center;gap:6px;
-    background:var(--panel);border:1px solid var(--panel-border);
-    backdrop-filter:blur(10px);
-    padding:6px 12px 6px 8px;border-radius:20px;
-    font-size:11.5px;font-weight:700;color:var(--text-dim);
-    opacity:0;transform:translateX(-12px);
-    transition:opacity .2s ease, transform .2s ease;
-  }
-  .pill.show{opacity:1;transform:translateX(0);}
-  .pill .dot{width:7px;height:7px;border-radius:50%;}
-  #boostPill .dot{background:var(--accent2);box-shadow:0 0 8px var(--accent2);}
-  #boostPill.show{color:var(--accent2);}
-
-  #minimapWrap{
-    position:absolute;bottom:18px;right:18px;z-index:10;
-    width:112px;height:112px;border-radius:50%;
-    background:var(--panel);border:2px solid var(--panel-border);
-    box-shadow:0 6px 24px rgba(0,0,0,0.45), inset 0 0 20px rgba(0,0,0,0.3);
-    overflow:hidden;pointer-events:none;
-  }
-  #minimapCanvas{width:100%;height:100%;}
-  #minimapWrap::after{
-    content:'';position:absolute;inset:0;border-radius:50%;
-    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.06);
-    pointer-events:none;
-  }
-
-  #fpsCounter{
-    position:absolute;top:14px;left:50%;transform:translateX(-50%);
-    font-size:10.5px;color:var(--text-dim);z-index:10;pointer-events:none;
-    background:var(--panel);padding:5px 11px;border-radius:10px;border:1px solid var(--panel-border);
-    opacity:0.55;font-variant-numeric:tabular-nums;letter-spacing:0.5px;
-    display:flex;align-items:center;gap:8px;
-  }
-  #pingStat{display:flex;align-items:center;gap:4px;}
-  #pingStat::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none;}
-  #pingStat.warn::before{background:var(--gold);}
-  #pingStat.bad::before{background:var(--danger);}
-
-  #killFeed{
-    position:absolute;top:14px;right:14px;margin-top:56px;
-    z-index:9;display:flex;flex-direction:column;gap:6px;align-items:flex-end;
-    pointer-events:none;
-  }
-  .kill-toast{
-    background:var(--panel);border:1px solid var(--panel-border);backdrop-filter:blur(10px);
-    padding:6px 12px;border-radius:10px;font-size:11.5px;color:var(--text-dim);
-    animation:toastIn .25s ease, toastOut .4s ease 2.6s forwards;
-    white-space:nowrap;
-  }
-  .kill-toast.join-toast{color:var(--accent);border-color:rgba(57,255,136,0.35);}
-  @keyframes toastIn{from{opacity:0;transform:translateX(20px);}to{opacity:1;transform:translateX(0);}}
-  @keyframes toastOut{to{opacity:0;transform:translateX(20px);}}
-
-  #connStatus{
-    position:absolute;top:14px;left:14px;z-index:30;
-    display:flex;align-items:center;gap:7px;
-    background:var(--panel);border:1px solid var(--panel-border);backdrop-filter:blur(10px);
-    padding:6px 12px 6px 10px;border-radius:20px;font-size:11px;color:var(--text-dim);font-weight:600;
-    transition:opacity .3s ease;
-  }
-  #connStatus .conn-dot{width:7px;height:7px;border-radius:50%;background:var(--danger);flex-shrink:0;}
-  #connStatus.online .conn-dot{background:var(--accent);box-shadow:0 0 6px var(--accent);}
-  #connStatus.hide{opacity:0;pointer-events:none;}
-
-  #boostBtn{
-    position:absolute;z-index:20;
-    width:80px;height:80px;border-radius:50%;
-    background:radial-gradient(circle at 35% 30%, #263355, #0f1626 72%);
-    border:2px solid rgba(255,255,255,0.12);
-    display:flex;align-items:center;justify-content:center;
-    box-shadow:0 8px 22px rgba(0,0,0,0.55), inset 0 1px 1px rgba(255,255,255,0.09);
-    transition:transform .1s ease, box-shadow .15s ease, border-color .15s ease;
-  }
-  #boostBtn::after{
-    content:'';position:absolute;inset:-2px;border-radius:50%;
-    border:2px solid transparent;
-    background:conic-gradient(var(--accent2) calc(var(--boost-pct,100) * 1%), transparent 0) border-box;
-    -webkit-mask:linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite:xor;mask-composite:exclude;
-    opacity:0.9;
-  }
-  #boostBtn svg{width:34px;height:34px;fill:var(--accent2);filter:drop-shadow(0 0 6px rgba(0,212,255,0.6));z-index:1;}
-  #boostBtn.active{
-    transform:scale(0.9);
-    box-shadow:0 0 26px rgba(0,212,255,0.75), inset 0 1px 1px rgba(255,255,255,0.15);
-    border-color:var(--accent2);
-  }
-  #boostBtn.depleted{opacity:0.45;}
-
-  #joystickZone{
-    position:absolute;z-index:20;
-    display:flex;align-items:center;justify-content:center;
-  }
-  #joystickBase{
-    width:132px;height:132px;border-radius:50%;
-    background:radial-gradient(circle at 40% 35%, rgba(255,255,255,0.07), rgba(7,10,18,0.4) 70%);
-    border:2px solid rgba(255,255,255,0.14);
-    position:relative;
-    box-shadow:inset 0 2px 14px rgba(0,0,0,0.45), 0 6px 18px rgba(0,0,0,0.35);
-  }
-  #joystickBase::before{
-    content:'';position:absolute;inset:14px;border-radius:50%;
-    border:1px dashed rgba(255,255,255,0.08);
-  }
-  #joystickStick{
-    width:56px;height:56px;border-radius:50%;
-    background:radial-gradient(circle at 35% 30%, #5dffab, #16a367 78%);
-    position:absolute;top:50%;left:50%;
-    transform:translate(-50%,-50%);
-    box-shadow:0 4px 14px rgba(0,0,0,0.5), 0 0 20px rgba(57,255,136,0.5), inset 0 2px 3px rgba(255,255,255,0.4);
-    pointer-events:none;
-    transition:box-shadow .15s;
-  }
-  #joystickZone.active #joystickStick{
-    box-shadow:0 4px 14px rgba(0,0,0,0.5), 0 0 32px rgba(57,255,136,0.9), inset 0 2px 3px rgba(255,255,255,0.4);
-  }
-
-  body.portrait #joystickZone{
-    left:50%;bottom:30px;transform:translateX(-50%);
-    width:150px;height:150px;
-  }
-  body.portrait #boostBtn{ right:26px;bottom:170px; }
-
-  body.landscape #joystickZone{
-    left:28px;bottom:28px;
-    width:150px;height:150px;
-  }
-  body.landscape #boostBtn{ right:28px;bottom:150px; }
-
-  .overlay{
-    position:absolute;inset:0;z-index:100;
-    display:flex;align-items:center;justify-content:center;
-    background:
-      radial-gradient(ellipse at 30% 20%, rgba(57,255,136,0.06), transparent 45%),
-      radial-gradient(ellipse at 70% 80%, rgba(0,212,255,0.06), transparent 45%),
-      radial-gradient(ellipse at center, rgba(15,22,38,0.97) 0%, rgba(7,10,18,0.99) 100%);
-    backdrop-filter:blur(6px);
-    animation:overlayFade .3s ease;
-  }
-  @keyframes overlayFade{from{opacity:0;}to{opacity:1;}}
-  .overlay.hidden{display:none;}
-
-  .panel-box{
-    width:min(92vw,400px);
-    max-height:92vh;
-    overflow-y:auto;
-    background:linear-gradient(180deg, rgba(24,32,52,0.85), rgba(15,20,34,0.9));
-    border:1px solid var(--panel-border);
-    border-radius:24px;
-    padding:34px 26px 28px;
-    text-align:center;
-    box-shadow:0 24px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
-    animation:popIn .4s cubic-bezier(.2,1.1,.4,1);
-  }
-  @keyframes popIn{from{transform:scale(0.88) translateY(16px);opacity:0;}to{transform:scale(1) translateY(0);opacity:1;}}
-
-  .logo{
-    font-size:42px;font-weight:900;letter-spacing:-1.5px;
-    background:linear-gradient(135deg, var(--accent), var(--accent2));
-    -webkit-background-clip:text;background-clip:text;color:transparent;
-    margin-bottom:2px;
-    filter:drop-shadow(0 4px 18px rgba(57,255,136,0.25));
-  }
-  .logo-icon{font-size:30px;display:inline-block;margin-right:2px;filter:drop-shadow(0 0 10px rgba(57,255,136,0.6));}
-  .subtitle{color:var(--text-dim);font-size:13px;margin-bottom:2px;font-weight:500;}
-  .menu-credit{color:var(--text-dim);font-size:11px;margin-bottom:24px;font-weight:500;opacity:0.65;letter-spacing:0.3px;}
-
-  #footerCredit{
-    position:absolute;bottom:6px;right:14px;z-index:9;
-    font-size:10.5px;color:rgba(255,255,255,0.32);
-    font-weight:600;letter-spacing:0.2px;
-    pointer-events:none;
-    text-shadow:0 1px 3px rgba(0,0,0,0.5);
-  }
-
-  #nameInput{
-    width:100%;padding:15px 16px;border-radius:14px;
-    background:rgba(255,255,255,0.05);border:1.5px solid var(--panel-border);
-    color:var(--text);font-size:15px;text-align:center;outline:none;font-weight:600;
-    margin-bottom:16px;transition:border-color .2s, background .2s;
-  }
-  #nameInput:focus{border-color:var(--accent);background:rgba(255,255,255,0.08);}
-
-  .section-label{
-    font-size:10.5px;color:var(--text-dim);letter-spacing:1.2px;text-transform:uppercase;
-    font-weight:700;margin-bottom:10px;text-align:left;
-  }
-  .color-row{display:flex;justify-content:center;gap:9px;margin-bottom:22px;flex-wrap:wrap;}
-  .color-dot{
-    width:30px;height:30px;border-radius:50%;cursor:pointer;
-    border:2px solid transparent;transition:transform .15s, border-color .15s, box-shadow .15s;
-    position:relative;
-  }
-  .color-dot.selected{border-color:#fff;transform:scale(1.18);box-shadow:0 0 14px currentColor;}
-
-  #playBtn{
-    width:100%;padding:16px;border:none;border-radius:16px;
-    background:linear-gradient(135deg, var(--accent), var(--accent-dark));
-    color:#04180d;font-size:17px;font-weight:800;letter-spacing:0.3px;
-    cursor:pointer;box-shadow:0 10px 26px rgba(57,255,136,0.35), inset 0 1px 0 rgba(255,255,255,0.3);
-    transition:transform .12s ease, box-shadow .12s ease;
-    display:flex;align-items:center;justify-content:center;gap:8px;
-  }
-  #playBtn:active{transform:scale(0.97);box-shadow:0 4px 14px rgba(57,255,136,0.3);}
-
-  .hint-grid{
-    margin-top:20px;display:flex;gap:10px;
-  }
-  .hint-item{
-    flex:1;background:rgba(255,255,255,0.03);border:1px solid var(--panel-border);
-    border-radius:12px;padding:10px 8px;font-size:10.5px;color:var(--text-dim);line-height:1.4;
-  }
-  .hint-item .hi-icon{font-size:18px;display:block;margin-bottom:4px;}
-
-  #deathIconWrap{
-    width:76px;height:76px;border-radius:50%;margin:0 auto 14px;
-    background:radial-gradient(circle at 35% 30%, rgba(255,71,87,0.25), rgba(255,71,87,0.05));
-    border:1.5px solid rgba(255,71,87,0.35);
-    display:flex;align-items:center;justify-content:center;font-size:34px;
-    box-shadow:0 0 30px rgba(255,71,87,0.25);
-  }
-  #deathTitle{font-size:24px;font-weight:800;color:var(--text);margin-bottom:4px;letter-spacing:-0.3px;}
-  #deathCause{font-size:12.5px;color:var(--text-dim);margin-bottom:22px;}
-
-  #deathStatsGrid{
-    display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:22px;
-  }
-  .stat-box{
-    background:rgba(255,255,255,0.04);border:1px solid var(--panel-border);
-    border-radius:14px;padding:14px 10px;
-  }
-  .stat-box.wide{grid-column:1/-1;background:linear-gradient(135deg, rgba(57,255,136,0.1), rgba(0,212,255,0.06));border-color:rgba(57,255,136,0.2);}
-  .stat-num{font-size:22px;font-weight:800;color:var(--text);font-variant-numeric:tabular-nums;}
-  .stat-box.wide .stat-num{color:var(--accent);font-size:28px;}
-  .stat-lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-top:2px;font-weight:600;}
-
-  #newRecordBadge{
-    display:none;
-    background:linear-gradient(135deg, var(--gold), #ff9d3d);
-    color:#3a2400;font-size:11.5px;font-weight:800;letter-spacing:0.5px;
-    padding:6px 14px;border-radius:20px;margin-bottom:16px;
-    box-shadow:0 6px 16px rgba(255,210,63,0.35);
-  }
-  #newRecordBadge.show{display:inline-block;}
-
-  #respawnBtn{
-    width:100%;padding:16px;border:none;border-radius:16px;
-    background:linear-gradient(135deg, var(--accent), var(--accent-dark));
-    color:#04180d;font-size:16px;font-weight:800;
-    cursor:pointer;box-shadow:0 10px 26px rgba(57,255,136,0.3);
-    transition:transform .12s ease;margin-bottom:10px;
-  }
-  #respawnBtn:active{transform:scale(0.97);}
-  #menuBtn{
-    width:100%;padding:13px;border:1.5px solid var(--panel-border);border-radius:16px;
-    background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:14px;font-weight:700;
-    cursor:pointer;transition:background .15s, color .15s;
-  }
-  #menuBtn:active{background:rgba(255,255,255,0.08);}
-
-  #loadingScreen{
-    position:absolute;inset:0;z-index:200;
-    background:var(--bg-1);
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:18px;
-  }
-  .spinner{
-    width:46px;height:46px;border-radius:50%;
-    border:3px solid rgba(57,255,136,0.15);
-    border-top-color:var(--accent);
-    animation:spin 0.8s linear infinite;
-  }
-  @keyframes spin{to{transform:rotate(360deg);}}
-
-  ::selection{background:transparent;}
-  ::-webkit-scrollbar{width:0;height:0;}
-</style>
-</head>
-<body class="portrait">
-
-<div id="loadingScreen">
-  <div class="spinner"></div>
-  <div style="color:var(--text-dim);font-size:13px;letter-spacing:1px;">MEMUAT APEX WORM...</div>
-</div>
-
-<canvas id="gameCanvas"></canvas>
-<div id="vignette"></div>
-<div id="edgeFlash"></div>
-
-<div id="hud">
-  <div id="scoreCard" class="hud-card">
-    <div id="ringWrap">
-      <svg viewBox="0 0 44 44">
-        <circle id="ringBg" cx="22" cy="22" r="18"></circle>
-        <circle id="ringFg" cx="22" cy="22" r="18" stroke-dasharray="113" stroke-dashoffset="113"></circle>
-      </svg>
-      <div id="rankBadge">#1</div>
-    </div>
-    <div id="scoreTextWrap">
-      <span id="scoreLabel">SKOR</span>
-      <span id="scoreValue">0</span>
-      <span id="lengthValue">Panjang: 0</span>
-    </div>
-  </div>
-  <div id="leaderboard" class="hud-card">
-    <h3>🏆 Peringkat</h3>
-    <div id="lbList"></div>
-  </div>
-</div>
-
-<div id="statusPills">
-  <div id="boostPill" class="pill"><span class="dot"></span>BOOST</div>
-</div>
-
-<div id="killFeed"></div>
-
-<div id="connStatus"><span class="conn-dot"></span><span id="connStatusText">Menghubungkan...</span></div>
-
-<div id="fpsCounter"><span id="fpsValue">60 FPS</span><span id="pingStat">-- ms</span></div>
-
-<div id="minimapWrap">
-  <canvas id="minimapCanvas" width="112" height="112"></canvas>
-</div>
-
-<div id="joystickZone">
-  <div id="joystickBase">
-    <div id="joystickStick"></div>
-  </div>
-</div>
-
-<div id="boostBtn" style="--boost-pct:100">
-  <svg viewBox="0 0 24 24"><path d="M13 2L3 14h7v8l10-12h-7z"/></svg>
-</div>
-
-<div id="startScreen" class="overlay">
-  <div class="panel-box">
-    <div class="logo"><span class="logo-icon">🐍</span>APEX WORM</div>
-    <div class="subtitle">Makan, tumbuh, kuasai arena — melawan pemain asli!</div>
-    <div class="menu-credit">Created by Justine Louise</div>
-    <input id="nameInput" type="text" placeholder="Masukkan nama kamu" maxlength="14">
-    <div class="section-label">Pilih Warna</div>
-    <div class="color-row" id="colorRow"></div>
-    <button id="playBtn">▶ MAIN SEKARANG</button>
-    <div class="hint-grid">
-      <div class="hint-item"><span class="hi-icon">🕹️</span>Joystick untuk arahkan ular</div>
-      <div class="hint-item"><span class="hi-icon">⚡</span>Tombol boost untuk lari cepat</div>
-      <div class="hint-item"><span class="hi-icon">🌀</span>Badan sendiri &amp; tembok aman dilewati</div>
-    </div>
-  </div>
-</div>
-
-<div id="deathScreen" class="overlay hidden">
-  <div class="panel-box">
-    <div id="deathIconWrap">💀</div>
-    <div id="newRecordBadge">🏅 REKOR BARU!</div>
-    <div id="deathTitle">Permainan Berakhir</div>
-    <div id="deathCause">Ditabrak oleh ular lain</div>
-    <div id="deathStatsGrid">
-      <div class="stat-box"><div class="stat-num" id="statLength">0</div><div class="stat-lbl">Panjang</div></div>
-      <div class="stat-box"><div class="stat-num" id="statRank">-</div><div class="stat-lbl">Peringkat</div></div>
-      <div class="stat-box wide"><div class="stat-num" id="statScore">0</div><div class="stat-lbl">Skor Akhir</div></div>
-    </div>
-    <button id="respawnBtn">🔄 MAIN LAGI</button>
-    <button id="menuBtn">Kembali ke Menu</button>
-  </div>
-</div>
-
-<div id="footerCredit">Created by Justine Louise</div>
-
-<script>
 (function(){
 "use strict";
 
@@ -517,10 +45,18 @@ resize();
 
 function rand(a,b){ return a + Math.random()*(b-a); }
 function dist2(x1,y1,x2,y2){ const dx=x1-x2, dy=y1-y2; return dx*dx+dy*dy; }
+// Sama seperti nama bot di server: dirakit dari beberapa pola berbeda
+// (bukan cuma Sifat+Hewan) supaya terasa lebih seperti nama pemain asli.
 function randomName(){
-  const adjs=["Cepat","Ganas","Licin","Lapar","Kejam","Gesit","Buas","Nakal","Sakti","Hebat"];
-  const nouns=["Naga","Ular","Cobra","Viper","Mamba","Python","Boa","Raja","Petir","Badai"];
-  return adjs[Math.floor(Math.random()*adjs.length)]+nouns[Math.floor(Math.random()*nouns.length)];
+  const titles=["Sang","Raja","Ratu","Master","Legenda","Fajar","Senja"];
+  const names1=["Raka","Bayu","Dewa","Arka","Kirana","Zaki","Nara","Ardan","Vino","Elang","Rangga","Satria"];
+  const adjs=["Kilat","Bara","Petir","Badai","Senja","Gaib","Abadi","Liar","Merah","Emas"];
+  const nouns=["Naga","Cobra","Mamba","Python","Anaconda","Basilisk","Serpent","Wyrm"];
+  const pattern = Math.floor(Math.random()*4);
+  if(pattern===0) return titles[Math.floor(Math.random()*titles.length)]+" "+names1[Math.floor(Math.random()*names1.length)];
+  if(pattern===1) return names1[Math.floor(Math.random()*names1.length)]+nouns[Math.floor(Math.random()*nouns.length)];
+  if(pattern===2) return adjs[Math.floor(Math.random()*adjs.length)]+nouns[Math.floor(Math.random()*nouns.length)];
+  return names1[Math.floor(Math.random()*names1.length)]+String(Math.floor(10+Math.random()*89));
 }
 function escapeHtml(s){
   return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -691,15 +227,21 @@ let foodById = new Map(); // persistent food state, kept in sync via add/remove 
 let snapshotHistory = []; // [{recvTime, worms: Map}, ...] oldest..newest, capped
 const SNAPSHOT_HISTORY_MAX = 8;
 let snapshotIntervalEst = 50; // running estimate of ms between snapshots (~1000/TICK_HZ)
+let snapshotJitterEst = 0;    // running estimate of how much the gap between snapshots varies
 let lastSnapshotRecvTime = 0;
-const INTERP_DELAY_MIN = 80;  // ms of deliberate render lag, floor
-const INTERP_DELAY_MAX = 220; // ms of deliberate render lag, ceiling (caps out on bad connections)
+const INTERP_DELAY_MIN = 30;  // ms of deliberate render lag, floor — kept small so play feels real-time
+const INTERP_DELAY_MAX = 220; // ms of deliberate render lag, ceiling (caps out on bad/jittery connections)
 
 function currentInterpDelay(){
-  // Scale the render delay with measured ping so laggier connections get a
-  // bigger safety buffer (fewer stutters) while good connections stay snappy.
-  const pingPart = pingSmoothed ? pingSmoothed * 0.5 : 0;
-  return Math.max(INTERP_DELAY_MIN, Math.min(INTERP_DELAY_MAX, snapshotIntervalEst * 1.5 + pingPart));
+  // The delay only needs to cover actual network jitter, not the full tick
+  // interval — on a clean connection consecutive snapshots arrive close to
+  // exactly on schedule, so a small fixed floor plus a jitter-proportional
+  // term keeps rendering close to real time. On a rougher connection,
+  // jitter (and ping) push the delay up automatically so we still avoid
+  // extrapolating past a stale snapshot.
+  const jitterPart = snapshotJitterEst * 2.5;
+  const pingPart = pingSmoothed ? pingSmoothed * 0.35 : 0;
+  return Math.max(INTERP_DELAY_MIN, Math.min(INTERP_DELAY_MAX, jitterPart + pingPart));
 }
 
 function unpackSegs(flat){
@@ -726,7 +268,15 @@ function applySnapshot(snap){
   const now = performance.now();
   if(lastSnapshotRecvTime){
     const gap = now - lastSnapshotRecvTime;
-    if(gap > 0 && gap < 500) snapshotIntervalEst += (gap - snapshotIntervalEst) * 0.15;
+    if(gap > 0 && gap < 500){
+      snapshotIntervalEst += (gap - snapshotIntervalEst) * 0.15;
+      // Track how much each gap deviates from the expected interval — this
+      // is the actual signal we want to size the render delay against,
+      // rather than the raw interval itself (which is ~constant at 50ms
+      // regardless of how jittery the network is).
+      const deviation = Math.abs(gap - snapshotIntervalEst);
+      snapshotJitterEst += (deviation - snapshotJitterEst) * 0.2;
+    }
   }
   lastSnapshotRecvTime = now;
 
@@ -792,19 +342,56 @@ function blendWormMaps(prevById, nextById, t){
   return out;
 }
 
-// Produces a smoothly blended array of worms for rendering. Instead of
-// always interpolating toward the very latest snapshot (which stutters the
-// instant a packet arrives a bit late), we pick a render timestamp slightly
-// in the past and find the two buffered snapshots that straddle it. As long
-// as the interpolation delay comfortably exceeds normal network jitter,
-// we're blending between two *real* snapshots almost all the time instead
-// of extrapolating from a stale one.
+// Given the two most recent snapshots, projects every worm's position
+// forward (or to any blend factor t, where t=1 is exactly the latest
+// snapshot and t>1 extrapolates beyond it) based on the velocity implied by
+// those two snapshots. Shared by extrapolateOwnWorm() and by
+// interpolateWorms()'s low-delay fallback below. Capped by the caller so a
+// late/missing snapshot just pauses briefly instead of overshooting.
+function extrapolateWormMap(prevById, nextById, t){
+  const out = [];
+  for(const [id, nw] of nextById){
+    const pw = prevById.get(id);
+    if(!pw || !pw.alive || !nw.alive || pw.segs.length !== nw.segs.length){
+      out.push(nw);
+      continue;
+    }
+    const segs = new Array(nw.segs.length);
+    for(let i=0;i<nw.segs.length;i++){
+      const vx = nw.segs[i].x - pw.segs[i].x;
+      const vy = nw.segs[i].y - pw.segs[i].y;
+      segs[i] = { x: nw.segs[i].x + vx * (t - 1), y: nw.segs[i].y + vy * (t - 1) };
+    }
+    out.push({ ...nw, segs, angle: lerpAngleShort(pw.angle, nw.angle, t) });
+  }
+  return out;
+}
+
+// Produces a smoothly blended array of worms for rendering. We pick a
+// render timestamp slightly in the past (currentInterpDelay(), sized to
+// actual measured jitter) and find the two buffered snapshots that
+// straddle it, blending real data between them — this keeps play close to
+// real time on a clean connection while still smoothing out jitter. If the
+// render time is newer than our latest snapshot (common when the delay is
+// small and the connection is fast), we extrapolate forward a short,
+// capped amount instead of freezing on the last snapshot.
 function interpolateWorms(){
   const n = snapshotHistory.length;
   if(n === 0) return [];
   if(n === 1) return Array.from(snapshotHistory[0].worms.values());
 
   const renderTime = performance.now() - currentInterpDelay();
+  const latest = snapshotHistory[n-1];
+
+  if(renderTime >= latest.recvTime){
+    const prev = snapshotHistory[n-2];
+    const dt = latest.recvTime - prev.recvTime;
+    if(dt <= 0) return Array.from(latest.worms.values());
+    // extrapolate at most one server-tick-worth forward to avoid runaway
+    // overshoot if a snapshot is late or drops
+    const exT = 1 + Math.max(0, Math.min((renderTime - latest.recvTime) / dt, 1));
+    return extrapolateWormMap(prev.worms, latest.worms, exT);
+  }
 
   // find the newest pair [a,b] with a.recvTime <= renderTime <= b.recvTime
   let a = snapshotHistory[0], b = snapshotHistory[0];
@@ -817,8 +404,6 @@ function interpolateWorms(){
   }
   if(renderTime <= snapshotHistory[0].recvTime){
     a = b = snapshotHistory[0];
-  } else if(renderTime >= snapshotHistory[n-1].recvTime){
-    a = b = snapshotHistory[n-1];
   }
 
   if(a === b) return Array.from(a.worms.values());
@@ -1409,6 +994,3 @@ connectWS();
 requestAnimationFrame(gameLoop);
 
 })();
-</script>
-</body>
-</html>

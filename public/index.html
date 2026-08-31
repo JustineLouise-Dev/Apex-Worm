@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Apex Worm — Slither Battle</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="portrait">
+
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div style="color:var(--text-dim);font-size:13px;letter-spacing:1px;">MEMUAT APEX WORM...</div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+<div id="vignette"></div>
+<div id="edgeFlash"></div>
+
+<div id="hud">
+  <div id="scoreCard" class="hud-card">
+    <div id="ringWrap">
+      <svg viewBox="0 0 44 44">
+        <circle id="ringBg" cx="22" cy="22" r="18"></circle>
+        <circle id="ringFg" cx="22" cy="22" r="18" stroke-dasharray="113" stroke-dashoffset="113"></circle>
+      </svg>
+      <div id="rankBadge">#1</div>
+    </div>
+    <div id="scoreTextWrap">
+      <span id="scoreLabel">SKOR</span>
+      <span id="scoreValue">0</span>
+      <span id="lengthValue">Panjang: 0</span>
+    </div>
+  </div>
+  <div id="leaderboard" class="hud-card">
+    <h3>🏆 Peringkat</h3>
+    <div id="lbList"></div>
+  </div>
+</div>
+
+<div id="statusPills">
+  <div id="boostPill" class="pill"><span class="dot"></span>BOOST</div>
+</div>
+
+<div id="killFeed"></div>
+
+<div id="connStatus"><span class="conn-dot"></span><span id="connStatusText">Menghubungkan...</span></div>
+
+<div id="fpsCounter"><span id="fpsValue">60 FPS</span><span id="pingStat">-- ms</span></div>
+
+<div id="minimapWrap">
+  <canvas id="minimapCanvas" width="112" height="112"></canvas>
+</div>
+
+<div id="joystickZone">
+  <div id="joystickBase">
+    <div id="joystickStick"></div>
+  </div>
+</div>
+
+<div id="boostBtn" style="--boost-pct:100">
+  <svg viewBox="0 0 24 24"><path d="M13 2L3 14h7v8l10-12h-7z"/></svg>
+</div>
+
+<div id="startScreen" class="overlay">
+  <div class="panel-box">
+    <div class="logo"><span class="logo-icon">🐍</span>APEX WORM</div>
+    <div class="subtitle">Makan, tumbuh, kuasai arena — melawan pemain asli!</div>
+    <div class="menu-credit">Created by Justine Louise</div>
+    <input id="nameInput" type="text" placeholder="Masukkan nama kamu" maxlength="14">
+    <div class="section-label">Pilih Warna</div>
+    <div class="color-row" id="colorRow"></div>
+    <button id="playBtn">▶ MAIN SEKARANG</button>
+    <div class="hint-grid">
+      <div class="hint-item"><span class="hi-icon">🕹️</span>Joystick untuk arahkan ular</div>
+      <div class="hint-item"><span class="hi-icon">⚡</span>Tombol boost untuk lari cepat</div>
+      <div class="hint-item"><span class="hi-icon">🌀</span>Badan sendiri &amp; tembok aman dilewati</div>
+    </div>
+  </div>
+</div>
+
+<div id="deathScreen" class="overlay hidden">
+  <div class="panel-box">
+    <div id="deathIconWrap">💀</div>
+    <div id="newRecordBadge">🏅 REKOR BARU!</div>
+    <div id="deathTitle">Permainan Berakhir</div>
+    <div id="deathCause">Ditabrak oleh ular lain</div>
+    <div id="deathStatsGrid">
+      <div class="stat-box"><div class="stat-num" id="statLength">0</div><div class="stat-lbl">Panjang</div></div>
+      <div class="stat-box"><div class="stat-num" id="statRank">-</div><div class="stat-lbl">Peringkat</div></div>
+      <div class="stat-box wide"><div class="stat-num" id="statScore">0</div><div class="stat-lbl">Skor Akhir</div></div>
+    </div>
+    <button id="respawnBtn">🔄 MAIN LAGI</button>
+    <button id="menuBtn">Kembali ke Menu</button>
+  </div>
+</div>
+
+<div id="footerCredit">Created by Justine Louise</div>
+
+<script src="/app.js" defer></script>
+</body>
+</html>

@@ -30,21 +30,24 @@ Bisa dijalankan **lokal di Termux/LAN** maupun **online via Cloudflare Worker + 
 
 ```
 apexworm/
-├── index.html            # Client game (HTML+CSS+JS) — tampilan & input, TIDAK menyimpan aturan game
+├── public/
+│   ├── index.html          # Markup game (struktur HUD, layar, dsb) — TIDAK menyimpan aturan game
+│   ├── style.css           # Semua styling/tampilan client
+│   └── app.js              # Semua logika client (rendering, input, koneksi WS) — TIDAK menyimpan aturan game
 ├── game-engine.js         # Logika game OTORITATIF (physics, AI bot, tabrakan) — dipakai server lokal & Cloudflare
 ├── durable-object.js      # Durable Object Cloudflare: room WebSocket + game loop online
 ├── mini-ws.js             # Implementasi WebSocket server minimal tanpa dependency (untuk Termux)
-├── server.js              # Server lokal (Node murni): serve index.html + jalankan game loop via mini-ws
+├── server.js              # Server lokal (Node murni): serve public/ + jalankan game loop via mini-ws
 ├── worker.js               # Hasil build siap deploy ke Cloudflare (auto-generated, jangan edit manual)
 ├── worker.template.js      # Template sumber untuk build-worker.js
-├── build-worker.js         # Script build: index.html + game-engine.js + durable-object.js -> worker.js
+├── build-worker.js         # Script build: public/(index.html+style.css+app.js) + game-engine.js + durable-object.js -> worker.js
 ├── wrangler.toml            # Konfigurasi Cloudflare Worker + binding Durable Object
 ├── package.json
 └── README.md
 ```
 
-**Penting:** karena sekarang ada server otoritatif, mengedit `index.html` saja tidak
-cukup untuk mengubah aturan main (kecepatan, ukuran dunia, jumlah bot, dll) —
+**Penting:** karena sekarang ada server otoritatif, mengedit file di `public/` saja
+tidak cukup untuk mengubah aturan main (kecepatan, ukuran dunia, jumlah bot, dll) —
 itu semua diatur di `game-engine.js` dan berlaku sama baik untuk server lokal
 maupun Cloudflare.
 
@@ -115,8 +118,8 @@ https://apex-worm-game.<subdomain-kamu>.workers.dev
 Bagikan URL ini ke siapa pun — mereka semua akan bermain di room global yang sama,
 realtime, lewat internet.
 
-### Update game setelah edit `index.html` / `game-engine.js` / `durable-object.js`
-Karena `worker.js` adalah hasil "build" dari ketiga file itu, **setiap kali kamu mengubahnya**,
+### Update game setelah edit `public/*` / `game-engine.js` / `durable-object.js`
+Karena `worker.js` adalah hasil "build" dari file-file itu, **setiap kali kamu mengubahnya**,
 generate ulang `worker.js` sebelum deploy:
 
 ```bash
