@@ -295,18 +295,19 @@ class GameRoom {
   // compared to full float64 precision (e.g. 1234.5 vs 1234.5678901234).
   static r1(n) { return Math.round(n * 10) / 10; }
 
-  // Send only every Nth body segment. The client draws the body as a single
-  // traced path/curve, so a sparser polyline looks the same on screen while
-  // cutting the dominant cost of the snapshot (segment count can be in the
-  // hundreds per worm) by ~2/3.
+  // Send every 2nd body segment. The client draws the body as a single
+  // traced path/curve, so a sparser polyline looks close to identical on
+  // screen while still cutting the dominant cost of the snapshot (segment
+  // count can be in the hundreds per worm) by ~half. (Every-3rd was tried
+  // but made curves look faceted on long worms — every-2nd is the sweet spot.)
   static packSegs(segs) {
     const out = [];
-    for (let i = 0; i < segs.length; i += 3) {
+    for (let i = 0; i < segs.length; i += 2) {
       out.push(GameRoom.r1(segs[i].x), GameRoom.r1(segs[i].y));
     }
     // always include the true tail point so the body doesn't visually shrink
     const last = segs[segs.length - 1];
-    if (segs.length % 3 !== 1) out.push(GameRoom.r1(last.x), GameRoom.r1(last.y));
+    if (segs.length % 2 !== 1) out.push(GameRoom.r1(last.x), GameRoom.r1(last.y));
     return out;
   }
 

@@ -638,6 +638,18 @@ function handleServerMessage(msg){
 
 let foodById = new Map(); // persistent food state, kept in sync via add/remove deltas (bandwidth optimization)
 
+// Interpolation buffer: the server only broadcasts at 20Hz, but we render at
+// up to 60fps. Without interpolation, worms visibly "teleport" between
+// snapshots (stutter). We keep the last two raw snapshots and, every render
+// frame, compute a smoothly blended position between them based on elapsed
+// time. This is the standard technique used by io-style games (slither.io
+// etc.) and also hides the coarser body-point spacing used to save bandwidth.
+let prevRawWorms = new Map(); // id -> raw worm from previous snapshot
+let nextRawWorms = new Map(); // id -> raw worm from latest snapshot
+let snapshotPrevTime = 0;     // performance.now() when prevRaw became current
+let snapshotIntervalEst = 50; // running estimate of ms between snapshots (~1000/TICK_HZ)
+let lastSnapshotRecvTime = 0;
+
 function unpackSegs(flat){
   // server sends body points as a flat [x,y,x,y,...] array to save bandwidth;
   // expand back to {x,y} objects so the existing drawing code needs no changes
@@ -656,8 +668,26 @@ function applySnapshot(snap){
   }
   food = Array.from(foodById.values());
 
-  worms = (snap.worms||[]).map(w => ({...w, segs: unpackSegs(w.segs)}));
-  wormsById = new Map(worms.map(w=>[w.id, w]));
+  const rawWorms = (snap.worms||[]).map(w => ({...w, segs: unpackSegs(w.segs)}));
+  const rawById = new Map(rawWorms.map(w=>[w.id, w]));
+
+  const now = performance.now();
+  if(lastSnapshotRecvTime){
+    const gap = now - lastSnapshotRecvTime;
+    if(gap > 0 && gap < 500) snapshotIntervalEst += (gap - snapshotIntervalEst) * 0.2;
+  }
+  lastSnapshotRecvTime = now;
+
+  // shift buffers: what was "next" becomes "prev" to interpolate from
+  prevRawWorms = nextRawWorms;
+  nextRawWorms = rawById;
+  snapshotPrevTime = now;
+
+  // worms/wormsById/player are refreshed here for logic that needs
+  // authoritative (non-interpolated) data — HUD numbers, alive checks, etc.
+  // Rendering uses the interpolated copy built in interpolateWorms().
+  worms = rawWorms;
+  wormsById = rawById;
   player = myId ? (wormsById.get(myId) || null) : null;
 
   if(player){
@@ -685,6 +715,45 @@ function applySnapshot(snap){
       }
     }
   }
+}
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+function lerpAngleShort(a,b,t){
+  let d = b - a;
+  while(d > Math.PI) d -= Math.PI*2;
+  while(d < -Math.PI) d += Math.PI*2;
+  return a + d*t;
+}
+
+// Produces a smoothly blended array of worms for rendering, interpolating
+// each worm's body points and head angle between the previous and latest
+// server snapshot based on how much time has elapsed since the latest one
+// arrived. Falls back to the raw (authoritative) worm if a worm only exists
+// in one of the two snapshots (e.g. just spawned or just died).
+function interpolateWorms(){
+  const now = performance.now();
+  const t = snapshotIntervalEst > 0
+    ? Math.min(1.2, (now - snapshotPrevTime) / snapshotIntervalEst)
+    : 1;
+
+  const out = [];
+  for(const [id, nw] of nextRawWorms){
+    const pw = prevRawWorms.get(id);
+    if(!pw || !pw.alive || !nw.alive || pw.segs.length !== nw.segs.length){
+      out.push(nw);
+      continue;
+    }
+    const segs = new Array(nw.segs.length);
+    for(let i=0;i<nw.segs.length;i++){
+      segs[i] = { x: lerp(pw.segs[i].x, nw.segs[i].x, t), y: lerp(pw.segs[i].y, nw.segs[i].y, t) };
+    }
+    out.push({
+      ...nw,
+      segs,
+      angle: lerpAngleShort(pw.angle, nw.angle, t)
+    });
+  }
+  return out;
 }
 
 const killFeedEl = document.getElementById('killFeed');
@@ -1002,12 +1071,13 @@ function drawMinimap(){
   }
 }
 
-function updateCamera(){
-  if(!player || !player.alive || !player.segs || !player.segs.length) return;
-  const head = player.segs[0];
+function updateCamera(renderWorms){
+  const p = renderWorms ? renderWorms.get(myId) : null;
+  if(!p || !p.alive || !p.segs || !p.segs.length) return;
+  const head = p.segs[0];
   camera.x += (head.x - camera.x)*0.18;
   camera.y += (head.y - camera.y)*0.18;
-  const targetZoom = Math.max(0.55, 1 - (player.len||0)/2200);
+  const targetZoom = Math.max(0.55, 1 - (player&&player.len||0)/2200);
   camera.zoom += (targetZoom - camera.zoom)*0.06;
 }
 
@@ -1105,13 +1175,15 @@ function gameLoop(now){
     }
   }
 
-  updateCamera();
+  const interpolated = interpolateWorms();
+  const interpolatedById = new Map(interpolated.map(w=>[w.id, w]));
+  updateCamera(interpolatedById);
 
   ctx.clearRect(0,0,W,H);
   drawGrid();
   drawWorldBorder();
   drawFood();
-  for(let i=0;i<worms.length;i++) drawWorm(worms[i]);
+  for(let i=0;i<interpolated.length;i++) drawWorm(interpolated[i]);
   drawParticles();
   drawMinimap();
   updateHUD();
@@ -1518,18 +1590,19 @@ class GameRoom {
   // compared to full float64 precision (e.g. 1234.5 vs 1234.5678901234).
   static r1(n) { return Math.round(n * 10) / 10; }
 
-  // Send only every Nth body segment. The client draws the body as a single
-  // traced path/curve, so a sparser polyline looks the same on screen while
-  // cutting the dominant cost of the snapshot (segment count can be in the
-  // hundreds per worm) by ~2/3.
+  // Send every 2nd body segment. The client draws the body as a single
+  // traced path/curve, so a sparser polyline looks close to identical on
+  // screen while still cutting the dominant cost of the snapshot (segment
+  // count can be in the hundreds per worm) by ~half. (Every-3rd was tried
+  // but made curves look faceted on long worms — every-2nd is the sweet spot.)
   static packSegs(segs) {
     const out = [];
-    for (let i = 0; i < segs.length; i += 3) {
+    for (let i = 0; i < segs.length; i += 2) {
       out.push(GameRoom.r1(segs[i].x), GameRoom.r1(segs[i].y));
     }
     // always include the true tail point so the body doesn't visually shrink
     const last = segs[segs.length - 1];
-    if (segs.length % 3 !== 1) out.push(GameRoom.r1(last.x), GameRoom.r1(last.y));
+    if (segs.length % 2 !== 1) out.push(GameRoom.r1(last.x), GameRoom.r1(last.y));
     return out;
   }
 
