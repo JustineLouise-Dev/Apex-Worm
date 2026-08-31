@@ -91,6 +91,10 @@ server.on('upgrade', (req, socket, head) => {
       worm = room.addPlayer(socketId, safeName(msg.name), msg.color);
       conn.send(JSON.stringify({ type: 'welcome', id: worm.id, worldSize: 5000 }));
       conn.send(JSON.stringify({ type: 'state', ...room.snapshotFull() }));
+    } else if (msg.type === 'ping') {
+      // Echo the client's own timestamp back immediately so it can compute
+      // round-trip time locally, without needing clock sync with the server.
+      conn.send(JSON.stringify({ type: 'pong', t: msg.t }));
     }
   });
 

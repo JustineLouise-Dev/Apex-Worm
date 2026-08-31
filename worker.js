@@ -140,7 +140,12 @@ const HTML_PAGE = `<!DOCTYPE html>
     font-size:10.5px;color:var(--text-dim);z-index:10;pointer-events:none;
     background:var(--panel);padding:5px 11px;border-radius:10px;border:1px solid var(--panel-border);
     opacity:0.55;font-variant-numeric:tabular-nums;letter-spacing:0.5px;
+    display:flex;align-items:center;gap:8px;
   }
+  #pingStat{display:flex;align-items:center;gap:4px;}
+  #pingStat::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none;}
+  #pingStat.warn::before{background:var(--gold);}
+  #pingStat.bad::before{background:var(--danger);}
 
   #killFeed{
     position:absolute;top:14px;right:14px;margin-top:56px;
@@ -422,7 +427,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 
 <div id="connStatus"><span class="conn-dot"></span><span id="connStatusText">Menghubungkan...</span></div>
 
-<div id="fpsCounter">60 FPS</div>
+<div id="fpsCounter"><span id="fpsValue">60 FPS</span><span id="pingStat">-- ms</span></div>
 
 <div id="minimapWrap">
   <canvas id="minimapCanvas" width="112" height="112"></canvas>
@@ -583,6 +588,7 @@ function connectWS(){
       sendHello();
       pendingJoinAfterOpen = false;
     }
+    startPingLoop();
   });
 
   ws.addEventListener('message', (ev)=>{
@@ -595,6 +601,8 @@ function connectWS(){
     connected = false;
     setConnStatus(false, 'Terputus — menyambung ulang...');
     connStatusEl.classList.remove('hide');
+    stopPingLoop();
+    updatePingDisplay(null);
     scheduleReconnect();
   });
 
@@ -627,10 +635,51 @@ function sendInput(angle, boosting){
   ws.send(JSON.stringify({type:'input', angle, boosting}));
 }
 
+/* =========================================================
+   PING / LATENCY MEASUREMENT
+   Small ping/pong pair sent every 2s (negligible bandwidth: a few bytes),
+   used purely to measure round-trip time and show it in the HUD, and to
+   drive the interpolation buffer delay below so playback stays smooth
+   even when the network is a bit jittery.
+   ========================================================= */
+let pingIntervalHandle = null;
+let pingSmoothed = null; // exponentially smoothed RTT in ms, null until first sample
+
+function startPingLoop(){
+  stopPingLoop();
+  sendPing();
+  pingIntervalHandle = setInterval(sendPing, 2000);
+}
+function stopPingLoop(){
+  if(pingIntervalHandle){ clearInterval(pingIntervalHandle); pingIntervalHandle = null; }
+}
+function sendPing(){
+  if(!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({type:'ping', t: performance.now()}));
+}
+function handlePong(sentAt){
+  const rtt = performance.now() - sentAt;
+  pingSmoothed = pingSmoothed === null ? rtt : pingSmoothed + (rtt - pingSmoothed) * 0.25;
+  updatePingDisplay(pingSmoothed);
+}
+function updatePingDisplay(ms){
+  if(ms === null || ms === undefined){
+    pingStatEl.textContent = '-- ms';
+    pingStatEl.classList.remove('warn','bad');
+    return;
+  }
+  const rounded = Math.round(ms);
+  pingStatEl.textContent = rounded + ' ms';
+  pingStatEl.classList.toggle('warn', rounded >= 120 && rounded < 250);
+  pingStatEl.classList.toggle('bad', rounded >= 250);
+}
+
 function handleServerMessage(msg){
   if(msg.type === 'welcome'){
     myId = msg.id;
     if(msg.worldSize) WORLD_SIZE = msg.worldSize;
+  } else if(msg.type === 'pong'){
+    handlePong(msg.t);
   } else if(msg.type === 'state'){
     applySnapshot(msg);
   }
@@ -639,16 +688,28 @@ function handleServerMessage(msg){
 let foodById = new Map(); // persistent food state, kept in sync via add/remove deltas (bandwidth optimization)
 
 // Interpolation buffer: the server only broadcasts at 20Hz, but we render at
-// up to 60fps. Without interpolation, worms visibly "teleport" between
-// snapshots (stutter). We keep the last two raw snapshots and, every render
-// frame, compute a smoothly blended position between them based on elapsed
-// time. This is the standard technique used by io-style games (slither.io
-// etc.) and also hides the coarser body-point spacing used to save bandwidth.
-let prevRawWorms = new Map(); // id -> raw worm from previous snapshot
-let nextRawWorms = new Map(); // id -> raw worm from latest snapshot
-let snapshotPrevTime = 0;     // performance.now() when prevRaw became current
+// up to 60fps, and network jitter means snapshots don't arrive at perfectly
+// even intervals. We keep a short history of recent snapshots and always
+// render slightly in the past (a fixed "interpolation delay"), interpolating
+// between the two buffered snapshots that straddle the render time. This is
+// the standard technique used by io-style games and fast-paced multiplayer
+// titles generally: rendering a little behind real time means we almost
+// always have two real snapshots to blend between, instead of having to
+// guess (extrapolate) when a packet is a few ms late — which is what was
+// causing visible stutter before.
+let snapshotHistory = []; // [{recvTime, worms: Map}, ...] oldest..newest, capped
+const SNAPSHOT_HISTORY_MAX = 8;
 let snapshotIntervalEst = 50; // running estimate of ms between snapshots (~1000/TICK_HZ)
 let lastSnapshotRecvTime = 0;
+const INTERP_DELAY_MIN = 80;  // ms of deliberate render lag, floor
+const INTERP_DELAY_MAX = 220; // ms of deliberate render lag, ceiling (caps out on bad connections)
+
+function currentInterpDelay(){
+  // Scale the render delay with measured ping so laggier connections get a
+  // bigger safety buffer (fewer stutters) while good connections stay snappy.
+  const pingPart = pingSmoothed ? pingSmoothed * 0.5 : 0;
+  return Math.max(INTERP_DELAY_MIN, Math.min(INTERP_DELAY_MAX, snapshotIntervalEst * 1.5 + pingPart));
+}
 
 function unpackSegs(flat){
   // server sends body points as a flat [x,y,x,y,...] array to save bandwidth;
@@ -674,14 +735,12 @@ function applySnapshot(snap){
   const now = performance.now();
   if(lastSnapshotRecvTime){
     const gap = now - lastSnapshotRecvTime;
-    if(gap > 0 && gap < 500) snapshotIntervalEst += (gap - snapshotIntervalEst) * 0.2;
+    if(gap > 0 && gap < 500) snapshotIntervalEst += (gap - snapshotIntervalEst) * 0.15;
   }
   lastSnapshotRecvTime = now;
 
-  // shift buffers: what was "next" becomes "prev" to interpolate from
-  prevRawWorms = nextRawWorms;
-  nextRawWorms = rawById;
-  snapshotPrevTime = now;
+  snapshotHistory.push({ recvTime: now, worms: rawById });
+  if(snapshotHistory.length > SNAPSHOT_HISTORY_MAX) snapshotHistory.shift();
 
   // worms/wormsById/player are refreshed here for logic that needs
   // authoritative (non-interpolated) data — HUD numbers, alive checks, etc.
@@ -725,20 +784,10 @@ function lerpAngleShort(a,b,t){
   return a + d*t;
 }
 
-// Produces a smoothly blended array of worms for rendering, interpolating
-// each worm's body points and head angle between the previous and latest
-// server snapshot based on how much time has elapsed since the latest one
-// arrived. Falls back to the raw (authoritative) worm if a worm only exists
-// in one of the two snapshots (e.g. just spawned or just died).
-function interpolateWorms(){
-  const now = performance.now();
-  const t = snapshotIntervalEst > 0
-    ? Math.min(1.2, (now - snapshotPrevTime) / snapshotIntervalEst)
-    : 1;
-
+function blendWormMaps(prevById, nextById, t){
   const out = [];
-  for(const [id, nw] of nextRawWorms){
-    const pw = prevRawWorms.get(id);
+  for(const [id, nw] of nextById){
+    const pw = prevById.get(id);
     if(!pw || !pw.alive || !nw.alive || pw.segs.length !== nw.segs.length){
       out.push(nw);
       continue;
@@ -747,13 +796,44 @@ function interpolateWorms(){
     for(let i=0;i<nw.segs.length;i++){
       segs[i] = { x: lerp(pw.segs[i].x, nw.segs[i].x, t), y: lerp(pw.segs[i].y, nw.segs[i].y, t) };
     }
-    out.push({
-      ...nw,
-      segs,
-      angle: lerpAngleShort(pw.angle, nw.angle, t)
-    });
+    out.push({ ...nw, segs, angle: lerpAngleShort(pw.angle, nw.angle, t) });
   }
   return out;
+}
+
+// Produces a smoothly blended array of worms for rendering. Instead of
+// always interpolating toward the very latest snapshot (which stutters the
+// instant a packet arrives a bit late), we pick a render timestamp slightly
+// in the past and find the two buffered snapshots that straddle it. As long
+// as the interpolation delay comfortably exceeds normal network jitter,
+// we're blending between two *real* snapshots almost all the time instead
+// of extrapolating from a stale one.
+function interpolateWorms(){
+  const n = snapshotHistory.length;
+  if(n === 0) return [];
+  if(n === 1) return Array.from(snapshotHistory[0].worms.values());
+
+  const renderTime = performance.now() - currentInterpDelay();
+
+  // find the newest pair [a,b] with a.recvTime <= renderTime <= b.recvTime
+  let a = snapshotHistory[0], b = snapshotHistory[0];
+  for(let i=0;i<n-1;i++){
+    if(snapshotHistory[i].recvTime <= renderTime && snapshotHistory[i+1].recvTime >= renderTime){
+      a = snapshotHistory[i]; b = snapshotHistory[i+1];
+      break;
+    }
+    a = snapshotHistory[i]; b = snapshotHistory[i+1];
+  }
+  if(renderTime <= snapshotHistory[0].recvTime){
+    a = b = snapshotHistory[0];
+  } else if(renderTime >= snapshotHistory[n-1].recvTime){
+    a = b = snapshotHistory[n-1];
+  }
+
+  if(a === b) return Array.from(a.worms.values());
+  const span = b.recvTime - a.recvTime;
+  const t = span > 0 ? Math.max(0, Math.min(1, (renderTime - a.recvTime) / span)) : 1;
+  return blendWormMaps(a.worms, b.worms, t);
 }
 
 const killFeedEl = document.getElementById('killFeed');
@@ -1071,13 +1151,15 @@ function drawMinimap(){
   }
 }
 
-function updateCamera(renderWorms){
-  const p = renderWorms ? renderWorms.get(myId) : null;
-  if(!p || !p.alive || !p.segs || !p.segs.length) return;
-  const head = p.segs[0];
+function updateCamera(){
+  // Camera tracks the raw (non-delayed) player position so steering stays
+  // responsive — only the drawn worm bodies use the delayed interpolation
+  // buffer for smoothness, not the camera itself.
+  if(!player || !player.alive || !player.segs || !player.segs.length) return;
+  const head = player.segs[0];
   camera.x += (head.x - camera.x)*0.18;
   camera.y += (head.y - camera.y)*0.18;
-  const targetZoom = Math.max(0.55, 1 - (player&&player.len||0)/2200);
+  const targetZoom = Math.max(0.55, 1 - (player.len||0)/2200);
   camera.zoom += (targetZoom - camera.zoom)*0.06;
 }
 
@@ -1144,13 +1226,15 @@ function updateHUD(){
 let lastTime = performance.now();
 let fpsSmooth = 60;
 const fpsCounter = document.getElementById('fpsCounter');
+const fpsValueEl = document.getElementById('fpsValue');
+const pingStatEl = document.getElementById('pingStat');
 
 function gameLoop(now){
   requestAnimationFrame(gameLoop);
   const dt = Math.min(0.05, (now-lastTime)/1000);
   lastTime = now;
   fpsSmooth += ((1/dt) - fpsSmooth)*0.05;
-  if(frameCount%20===0) fpsCounter.textContent = Math.round(fpsSmooth)+' FPS';
+  if(frameCount%20===0) fpsValueEl.textContent = Math.round(fpsSmooth)+' FPS';
 
   frameCount++;
 
@@ -1176,14 +1260,20 @@ function gameLoop(now){
   }
 
   const interpolated = interpolateWorms();
-  const interpolatedById = new Map(interpolated.map(w=>[w.id, w]));
-  updateCamera(interpolatedById);
+  // Our own worm is drawn from the raw, non-delayed snapshot so it stays in
+  // lockstep with the camera and feels responsive to steer. Other worms use
+  // the delayed interpolation buffer for smoothness — a small mismatch
+  // between "my worm" and "everyone else" is imperceptible, but a mismatch
+  // between "my worm" and "the camera" is not.
+  const renderList = interpolated.filter(w => w.id !== myId);
+  if(player) renderList.push(player);
+  updateCamera();
 
   ctx.clearRect(0,0,W,H);
   drawGrid();
   drawWorldBorder();
   drawFood();
-  for(let i=0;i<interpolated.length;i++) drawWorm(interpolated[i]);
+  for(let i=0;i<renderList.length;i++) drawWorm(renderList[i]);
   drawParticles();
   drawMinimap();
   updateHUD();
@@ -1715,6 +1805,10 @@ class ApexWormRoom {
         entry.worm = worm;
         server.send(JSON.stringify({ type: 'welcome', id: worm.id, worldSize: WORLD_SIZE }));
         server.send(JSON.stringify({ type: 'state', ...this.room.snapshotFull() }));
+      } else if (msg.type === 'ping') {
+        // Echo back immediately so the client can compute round-trip time
+        // locally, without needing clock sync with the Durable Object.
+        server.send(JSON.stringify({ type: 'pong', t: msg.t }));
       }
     });
 

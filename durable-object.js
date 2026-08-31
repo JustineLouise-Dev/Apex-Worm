@@ -67,6 +67,10 @@ export class ApexWormRoom {
         entry.worm = worm;
         server.send(JSON.stringify({ type: 'welcome', id: worm.id, worldSize: WORLD_SIZE }));
         server.send(JSON.stringify({ type: 'state', ...this.room.snapshotFull() }));
+      } else if (msg.type === 'ping') {
+        // Echo back immediately so the client can compute round-trip time
+        // locally, without needing clock sync with the Durable Object.
+        server.send(JSON.stringify({ type: 'pong', t: msg.t }));
       }
     });
 
