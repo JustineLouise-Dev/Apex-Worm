@@ -836,6 +836,45 @@ function interpolateWorms(){
   return blendWormMaps(a.worms, b.worms, t);
 }
 
+// Our own worm can't use the delayed buffer above (that would make steering
+// feel laggy/behind the camera). Instead we extrapolate slightly *forward*
+// from the two latest real snapshots: estimate the head's velocity from how
+// far it moved between them, then project a little further along that
+// velocity for the time elapsed since the last snapshot arrived. This keeps
+// our own worm's motion smooth at 60fps between the server's 20Hz updates,
+// without ever looking delayed. Capped short so a missed/late packet just
+// pauses briefly instead of overshooting.
+function extrapolateOwnWorm(){
+  if(!myId) return null;
+  const n = snapshotHistory.length;
+  if(n === 0) return null;
+  const latest = snapshotHistory[n-1];
+  const nw = latest.worms.get(myId);
+  if(!nw || !nw.alive) return nw || null;
+  if(n < 2) return nw;
+
+  const prev = snapshotHistory[n-2];
+  const pw = prev.worms.get(myId);
+  if(!pw || !pw.alive || pw.segs.length !== nw.segs.length) return nw;
+
+  const dt = latest.recvTime - prev.recvTime;
+  if(dt <= 0) return nw;
+
+  const sinceLatest = performance.now() - latest.recvTime;
+  // extrapolate at most one server-tick-worth forward to avoid runaway
+  // overshoot if a snapshot is late or drops
+  const exT = Math.max(0, Math.min(sinceLatest / dt, 1));
+
+  const segs = new Array(nw.segs.length);
+  for(let i=0;i<nw.segs.length;i++){
+    const vx = nw.segs[i].x - pw.segs[i].x;
+    const vy = nw.segs[i].y - pw.segs[i].y;
+    segs[i] = { x: nw.segs[i].x + vx * exT, y: nw.segs[i].y + vy * exT };
+  }
+  const angle = lerpAngleShort(pw.angle, nw.angle, 1 + exT);
+  return { ...nw, segs, angle };
+}
+
 const killFeedEl = document.getElementById('killFeed');
 function addKillToast(text){
   const el = document.createElement('div');
@@ -1151,15 +1190,16 @@ function drawMinimap(){
   }
 }
 
-function updateCamera(){
-  // Camera tracks the raw (non-delayed) player position so steering stays
-  // responsive — only the drawn worm bodies use the delayed interpolation
-  // buffer for smoothness, not the camera itself.
-  if(!player || !player.alive || !player.segs || !player.segs.length) return;
-  const head = player.segs[0];
+function updateCamera(ownWorm){
+  // Camera tracks the extrapolated (smoothed, non-delayed) own-worm head so
+  // steering stays responsive and the camera never drifts apart from the
+  // drawn body.
+  const p = ownWorm || player;
+  if(!p || !p.alive || !p.segs || !p.segs.length) return;
+  const head = p.segs[0];
   camera.x += (head.x - camera.x)*0.18;
   camera.y += (head.y - camera.y)*0.18;
-  const targetZoom = Math.max(0.55, 1 - (player.len||0)/2200);
+  const targetZoom = Math.max(0.55, 1 - (player&&player.len||0)/2200);
   camera.zoom += (targetZoom - camera.zoom)*0.06;
 }
 
@@ -1260,14 +1300,14 @@ function gameLoop(now){
   }
 
   const interpolated = interpolateWorms();
-  // Our own worm is drawn from the raw, non-delayed snapshot so it stays in
-  // lockstep with the camera and feels responsive to steer. Other worms use
-  // the delayed interpolation buffer for smoothness — a small mismatch
-  // between "my worm" and "everyone else" is imperceptible, but a mismatch
-  // between "my worm" and "the camera" is not.
+  // Our own worm can't use the delayed buffer above (that would make
+  // steering feel laggy/behind the camera). Instead it's extrapolated
+  // forward from the two latest real snapshots so it stays smooth at 60fps
+  // without ever looking delayed — see extrapolateOwnWorm().
+  const ownWorm = extrapolateOwnWorm();
   const renderList = interpolated.filter(w => w.id !== myId);
-  if(player) renderList.push(player);
-  updateCamera();
+  if(ownWorm) renderList.push(ownWorm);
+  updateCamera(ownWorm);
 
   ctx.clearRect(0,0,W,H);
   drawGrid();
