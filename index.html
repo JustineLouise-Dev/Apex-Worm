@@ -627,9 +627,27 @@ function handleServerMessage(msg){
   }
 }
 
+let foodById = new Map(); // persistent food state, kept in sync via add/remove deltas (bandwidth optimization)
+
+function unpackSegs(flat){
+  // server sends body points as a flat [x,y,x,y,...] array to save bandwidth;
+  // expand back to {x,y} objects so the existing drawing code needs no changes
+  const out = [];
+  if(!flat) return out;
+  for(let i=0;i<flat.length;i+=2) out.push({x:flat[i], y:flat[i+1]});
+  return out;
+}
+
 function applySnapshot(snap){
-  food = snap.food || [];
-  worms = snap.worms || [];
+  if(snap.full){
+    foodById = new Map((snap.food||[]).map(f=>[f[0], {x:f[1], y:f[2], r:f[3], color:f[4]}]));
+  } else {
+    if(snap.foodAdd) for(const f of snap.foodAdd) foodById.set(f[0], {x:f[1], y:f[2], r:f[3], color:f[4]});
+    if(snap.foodDel) for(const id of snap.foodDel) foodById.delete(id);
+  }
+  food = Array.from(foodById.values());
+
+  worms = (snap.worms||[]).map(w => ({...w, segs: unpackSegs(w.segs)}));
   wormsById = new Map(worms.map(w=>[w.id, w]));
   player = myId ? (wormsById.get(myId) || null) : null;
 
@@ -641,7 +659,7 @@ function applySnapshot(snap){
       deathScreen.classList.add('hidden');
     }
     if(gameRunning && !player.alive){
-      lastDeathInfo = { cause: player.deathCause || 'Ditabrak ular lain', length: player.segs ? player.segs.length : 0 };
+      lastDeathInfo = { cause: player.deathCause || 'Ditabrak ular lain', length: player.len || 0 };
       gameRunning = false;
       setTimeout(showDeathScreen, 200);
     }
@@ -980,7 +998,7 @@ function updateCamera(){
   const head = player.segs[0];
   camera.x += (head.x - camera.x)*0.18;
   camera.y += (head.y - camera.y)*0.18;
-  const targetZoom = Math.max(0.55, 1 - player.segs.length/2200);
+  const targetZoom = Math.max(0.55, 1 - (player.len||0)/2200);
   camera.zoom += (targetZoom - camera.zoom)*0.06;
 }
 
@@ -998,7 +1016,7 @@ function updateHUD(){
   if(player){
     const sc = Math.floor(player.score - START_LENGTH >= 0 ? (player.score-START_LENGTH)*10 : 0);
     scoreValue.textContent = sc;
-    lengthValue.textContent = 'Panjang: ' + (player.segs ? player.segs.length : 0);
+    lengthValue.textContent = 'Panjang: ' + (player.len || 0);
 
     const milestone = 500;
     const progress = (sc % milestone) / milestone;
@@ -1007,25 +1025,25 @@ function updateHUD(){
 
   boostPill.classList.toggle('show', !!(player && player.boosting));
 
-  if(player && player.segs){
-    const pct = player.segs.length > 12 ? 100 : Math.max(0, (player.segs.length-START_LENGTH)/(12-START_LENGTH)*100);
+  if(player && player.len != null){
+    const pct = player.len > 12 ? 100 : Math.max(0, (player.len-START_LENGTH)/(12-START_LENGTH)*100);
     boostBtn.style.setProperty('--boost-pct', String(pct));
-    boostBtn.classList.toggle('depleted', player.segs.length<=12);
+    boostBtn.classList.toggle('depleted', player.len<=12);
   }
 
   if(frameCount % 15 === 0){
-    const sorted = worms.filter(w=>w.alive).sort((a,b)=>(b.segs?b.segs.length:0)-(a.segs?a.segs.length:0)).slice(0,10);
+    const sorted = worms.filter(w=>w.alive).sort((a,b)=>(b.len||0)-(a.len||0)).slice(0,10);
     lbList.innerHTML = sorted.map((w,i)=>`
       <div class="lb-row ${w.id===myId?'me':''}">
         <span class="lb-rank">${i+1}</span>
         <span class="lb-dot" style="color:${w.color};background:${w.color};"></span>
         <span class="lb-name">${escapeHtml(w.name)}</span>
-        <span class="lb-score">${w.segs?w.segs.length:0}</span>
+        <span class="lb-score">${w.len||0}</span>
       </div>
     `).join('');
 
     if(player){
-      const allSorted = worms.filter(w=>w.alive).sort((a,b)=>(b.segs?b.segs.length:0)-(a.segs?a.segs.length:0));
+      const allSorted = worms.filter(w=>w.alive).sort((a,b)=>(b.len||0)-(a.len||0));
       const idx = allSorted.findIndex(w=>w.id===myId);
       currentRank = idx>=0 ? idx+1 : allSorted.length+1;
       rankBadge.textContent = '#'+currentRank;
@@ -1072,9 +1090,9 @@ function gameLoop(now){
     }
     if(dx*dx+dy*dy > 0.001){
       const angle = Math.atan2(dy,dx);
-      sendInput(angle, boosting && player.segs.length>12);
+      sendInput(angle, boosting && (player.len||0)>12);
     } else {
-      sendInput(player.angle, boosting && player.segs.length>12);
+      sendInput(player.angle, boosting && (player.len||0)>12);
     }
   }
 

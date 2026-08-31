@@ -47,18 +47,24 @@ class GameRoom {
     this.food = [];
     this.worms = new Map(); // id -> worm
     this.nextId = 1;
+    this.nextFoodId = 1;
     this.events = []; // {type:'join'|'kill'|'leave', ...} to flush each tick
+    this.foodAdded = [];   // food items added since last snapshot (bandwidth: delta sync)
+    this.foodRemovedIds = []; // food ids removed since last snapshot
     this.spawnFood(FOOD_COUNT);
     for (let i = 0; i < BOT_COUNT; i++) this.spawnBot();
   }
 
   spawnFood(n) {
     for (let i = 0; i < n; i++) {
-      this.food.push({
+      const f = {
+        id: this.nextFoodId++,
         x: rand(0, WORLD_SIZE), y: rand(0, WORLD_SIZE),
         r: rand(FOOD_RADIUS_MIN, FOOD_RADIUS_MAX),
         color: PALETTE[Math.floor(Math.random() * PALETTE.length)]
-      });
+      };
+      this.food.push(f);
+      this.foodAdded.push(f);
     }
   }
 
@@ -126,10 +132,13 @@ class GameRoom {
     w.alive = false;
     w.deathCause = cause || 'Ditabrak ular lain';
     for (let i = 0; i < w.segs.length; i += 2) {
-      this.food.push({
+      const f = {
+        id: this.nextFoodId++,
         x: w.segs[i].x + rand(-8, 8), y: w.segs[i].y + rand(-8, 8),
         r: rand(6, 10), color: w.color
-      });
+      };
+      this.food.push(f);
+      this.foodAdded.push(f);
     }
     this.events.push({ type: 'kill', name: w.name, cause: w.deathCause, isBot: w.isBot });
   }
@@ -190,7 +199,9 @@ class GameRoom {
         w.score = Math.max(START_LENGTH, w.score - 1);
         w.segs.pop();
         const tail = w.segs[w.segs.length - 1];
-        this.food.push({ x: tail.x + rand(-4, 4), y: tail.y + rand(-4, 4), r: rand(2, 4), color: w.color });
+        const f = { id: this.nextFoodId++, x: tail.x + rand(-4, 4), y: tail.y + rand(-4, 4), r: rand(2, 4), color: w.color };
+        this.food.push(f);
+        this.foodAdded.push(f);
       }
     } else { w.boostCooldown = 0; }
 
@@ -222,6 +233,7 @@ class GameRoom {
       if (dist2(head.x, head.y, f.x, f.y) < rr * rr) {
         this.growWorm(w, f.r * 0.5);
         this.food.splice(i, 1);
+        this.foodRemovedIds.push(f.id);
       }
     }
   }
@@ -278,19 +290,63 @@ class GameRoom {
     this.removeDeadPlayers();
   }
 
+  // Round to keep JSON payload small — 1 decimal is visually indistinguishable
+  // for on-screen movement but cuts numeric string length roughly in half
+  // compared to full float64 precision (e.g. 1234.5 vs 1234.5678901234).
+  static r1(n) { return Math.round(n * 10) / 10; }
+
+  // Send only every Nth body segment. The client draws the body as a single
+  // traced path/curve, so a sparser polyline looks the same on screen while
+  // cutting the dominant cost of the snapshot (segment count can be in the
+  // hundreds per worm) by ~2/3.
+  static packSegs(segs) {
+    const out = [];
+    for (let i = 0; i < segs.length; i += 3) {
+      out.push(GameRoom.r1(segs[i].x), GameRoom.r1(segs[i].y));
+    }
+    // always include the true tail point so the body doesn't visually shrink
+    const last = segs[segs.length - 1];
+    if (segs.length % 3 !== 1) out.push(GameRoom.r1(last.x), GameRoom.r1(last.y));
+    return out;
+  }
+
+  // Full snapshot: sent once on join (welcome) so the client has a complete
+  // world state (all current food + worm bodies) to start from.
+  snapshotFull() {
+    const worms = [];
+    for (const w of this.worms.values()) {
+      worms.push({
+        id: w.id, name: w.name, color: w.color, isBot: w.isBot,
+        segs: GameRoom.packSegs(w.segs), angle: GameRoom.r1(w.angle), radius: GameRoom.r1(w.radius),
+        boosting: w.boosting, alive: w.alive, score: Math.round(w.score), len: w.segs.length,
+        invuln: w.invulnT > 0
+      });
+    }
+    const food = this.food.map(f => [f.id, GameRoom.r1(f.x), GameRoom.r1(f.y), GameRoom.r1(f.r), f.color]);
+    return { t: Date.now(), full: true, food, worms, events: [], worldSize: WORLD_SIZE };
+  }
+
+  // Delta snapshot: sent every tick. Worms still carry position/stats each
+  // tick (they move every tick, so that's irreducible), but food is sent as
+  // an add/remove delta instead of the full ~900-item array, since food is
+  // almost always unchanged between ticks.
   snapshot() {
     const worms = [];
     for (const w of this.worms.values()) {
       worms.push({
         id: w.id, name: w.name, color: w.color, isBot: w.isBot,
-        segs: w.segs, angle: w.angle, radius: w.radius,
-        boosting: w.boosting, alive: w.alive, score: w.score,
+        segs: GameRoom.packSegs(w.segs), angle: GameRoom.r1(w.angle), radius: GameRoom.r1(w.radius),
+        boosting: w.boosting, alive: w.alive, score: Math.round(w.score), len: w.segs.length,
         invuln: w.invulnT > 0
       });
     }
     const flushedEvents = this.events;
     this.events = [];
-    return { t: Date.now(), food: this.food, worms, events: flushedEvents, worldSize: WORLD_SIZE };
+    const foodAdd = this.foodAdded.map(f => [f.id, GameRoom.r1(f.x), GameRoom.r1(f.y), GameRoom.r1(f.r), f.color]);
+    const foodDel = this.foodRemovedIds;
+    this.foodAdded = [];
+    this.foodRemovedIds = [];
+    return { t: Date.now(), full: false, foodAdd, foodDel, worms, events: flushedEvents, worldSize: WORLD_SIZE };
   }
 }
 

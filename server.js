@@ -83,12 +83,14 @@ server.on('upgrade', (req, socket, head) => {
     if (msg.type === 'hello') {
       worm = room.addPlayer(socketId, safeName(msg.name), msg.color);
       conn.send(JSON.stringify({ type: 'welcome', id: worm.id, worldSize: 5000 }));
+      conn.send(JSON.stringify({ type: 'state', ...room.snapshotFull() }));
     } else if (msg.type === 'input' && worm) {
       room.setInput(socketId, msg.angle, msg.boosting);
     } else if (msg.type === 'respawn') {
       if (worm) room.removePlayer(socketId);
       worm = room.addPlayer(socketId, safeName(msg.name), msg.color);
       conn.send(JSON.stringify({ type: 'welcome', id: worm.id, worldSize: 5000 }));
+      conn.send(JSON.stringify({ type: 'state', ...room.snapshotFull() }));
     }
   });
 

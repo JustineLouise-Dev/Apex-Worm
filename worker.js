@@ -636,9 +636,27 @@ function handleServerMessage(msg){
   }
 }
 
+let foodById = new Map(); // persistent food state, kept in sync via add/remove deltas (bandwidth optimization)
+
+function unpackSegs(flat){
+  // server sends body points as a flat [x,y,x,y,...] array to save bandwidth;
+  // expand back to {x,y} objects so the existing drawing code needs no changes
+  const out = [];
+  if(!flat) return out;
+  for(let i=0;i<flat.length;i+=2) out.push({x:flat[i], y:flat[i+1]});
+  return out;
+}
+
 function applySnapshot(snap){
-  food = snap.food || [];
-  worms = snap.worms || [];
+  if(snap.full){
+    foodById = new Map((snap.food||[]).map(f=>[f[0], {x:f[1], y:f[2], r:f[3], color:f[4]}]));
+  } else {
+    if(snap.foodAdd) for(const f of snap.foodAdd) foodById.set(f[0], {x:f[1], y:f[2], r:f[3], color:f[4]});
+    if(snap.foodDel) for(const id of snap.foodDel) foodById.delete(id);
+  }
+  food = Array.from(foodById.values());
+
+  worms = (snap.worms||[]).map(w => ({...w, segs: unpackSegs(w.segs)}));
   wormsById = new Map(worms.map(w=>[w.id, w]));
   player = myId ? (wormsById.get(myId) || null) : null;
 
@@ -650,7 +668,7 @@ function applySnapshot(snap){
       deathScreen.classList.add('hidden');
     }
     if(gameRunning && !player.alive){
-      lastDeathInfo = { cause: player.deathCause || 'Ditabrak ular lain', length: player.segs ? player.segs.length : 0 };
+      lastDeathInfo = { cause: player.deathCause || 'Ditabrak ular lain', length: player.len || 0 };
       gameRunning = false;
       setTimeout(showDeathScreen, 200);
     }
@@ -989,7 +1007,7 @@ function updateCamera(){
   const head = player.segs[0];
   camera.x += (head.x - camera.x)*0.18;
   camera.y += (head.y - camera.y)*0.18;
-  const targetZoom = Math.max(0.55, 1 - player.segs.length/2200);
+  const targetZoom = Math.max(0.55, 1 - (player.len||0)/2200);
   camera.zoom += (targetZoom - camera.zoom)*0.06;
 }
 
@@ -1007,7 +1025,7 @@ function updateHUD(){
   if(player){
     const sc = Math.floor(player.score - START_LENGTH >= 0 ? (player.score-START_LENGTH)*10 : 0);
     scoreValue.textContent = sc;
-    lengthValue.textContent = 'Panjang: ' + (player.segs ? player.segs.length : 0);
+    lengthValue.textContent = 'Panjang: ' + (player.len || 0);
 
     const milestone = 500;
     const progress = (sc % milestone) / milestone;
@@ -1016,25 +1034,25 @@ function updateHUD(){
 
   boostPill.classList.toggle('show', !!(player && player.boosting));
 
-  if(player && player.segs){
-    const pct = player.segs.length > 12 ? 100 : Math.max(0, (player.segs.length-START_LENGTH)/(12-START_LENGTH)*100);
+  if(player && player.len != null){
+    const pct = player.len > 12 ? 100 : Math.max(0, (player.len-START_LENGTH)/(12-START_LENGTH)*100);
     boostBtn.style.setProperty('--boost-pct', String(pct));
-    boostBtn.classList.toggle('depleted', player.segs.length<=12);
+    boostBtn.classList.toggle('depleted', player.len<=12);
   }
 
   if(frameCount % 15 === 0){
-    const sorted = worms.filter(w=>w.alive).sort((a,b)=>(b.segs?b.segs.length:0)-(a.segs?a.segs.length:0)).slice(0,10);
+    const sorted = worms.filter(w=>w.alive).sort((a,b)=>(b.len||0)-(a.len||0)).slice(0,10);
     lbList.innerHTML = sorted.map((w,i)=>\`
       <div class="lb-row \${w.id===myId?'me':''}">
         <span class="lb-rank">\${i+1}</span>
         <span class="lb-dot" style="color:\${w.color};background:\${w.color};"></span>
         <span class="lb-name">\${escapeHtml(w.name)}</span>
-        <span class="lb-score">\${w.segs?w.segs.length:0}</span>
+        <span class="lb-score">\${w.len||0}</span>
       </div>
     \`).join('');
 
     if(player){
-      const allSorted = worms.filter(w=>w.alive).sort((a,b)=>(b.segs?b.segs.length:0)-(a.segs?a.segs.length:0));
+      const allSorted = worms.filter(w=>w.alive).sort((a,b)=>(b.len||0)-(a.len||0));
       const idx = allSorted.findIndex(w=>w.id===myId);
       currentRank = idx>=0 ? idx+1 : allSorted.length+1;
       rankBadge.textContent = '#'+currentRank;
@@ -1081,9 +1099,9 @@ function gameLoop(now){
     }
     if(dx*dx+dy*dy > 0.001){
       const angle = Math.atan2(dy,dx);
-      sendInput(angle, boosting && player.segs.length>12);
+      sendInput(angle, boosting && (player.len||0)>12);
     } else {
-      sendInput(player.angle, boosting && player.segs.length>12);
+      sendInput(player.angle, boosting && (player.len||0)>12);
     }
   }
 
@@ -1252,18 +1270,24 @@ class GameRoom {
     this.food = [];
     this.worms = new Map(); // id -> worm
     this.nextId = 1;
+    this.nextFoodId = 1;
     this.events = []; // {type:'join'|'kill'|'leave', ...} to flush each tick
+    this.foodAdded = [];   // food items added since last snapshot (bandwidth: delta sync)
+    this.foodRemovedIds = []; // food ids removed since last snapshot
     this.spawnFood(FOOD_COUNT);
     for (let i = 0; i < BOT_COUNT; i++) this.spawnBot();
   }
 
   spawnFood(n) {
     for (let i = 0; i < n; i++) {
-      this.food.push({
+      const f = {
+        id: this.nextFoodId++,
         x: rand(0, WORLD_SIZE), y: rand(0, WORLD_SIZE),
         r: rand(FOOD_RADIUS_MIN, FOOD_RADIUS_MAX),
         color: PALETTE[Math.floor(Math.random() * PALETTE.length)]
-      });
+      };
+      this.food.push(f);
+      this.foodAdded.push(f);
     }
   }
 
@@ -1331,10 +1355,13 @@ class GameRoom {
     w.alive = false;
     w.deathCause = cause || 'Ditabrak ular lain';
     for (let i = 0; i < w.segs.length; i += 2) {
-      this.food.push({
+      const f = {
+        id: this.nextFoodId++,
         x: w.segs[i].x + rand(-8, 8), y: w.segs[i].y + rand(-8, 8),
         r: rand(6, 10), color: w.color
-      });
+      };
+      this.food.push(f);
+      this.foodAdded.push(f);
     }
     this.events.push({ type: 'kill', name: w.name, cause: w.deathCause, isBot: w.isBot });
   }
@@ -1395,7 +1422,9 @@ class GameRoom {
         w.score = Math.max(START_LENGTH, w.score - 1);
         w.segs.pop();
         const tail = w.segs[w.segs.length - 1];
-        this.food.push({ x: tail.x + rand(-4, 4), y: tail.y + rand(-4, 4), r: rand(2, 4), color: w.color });
+        const f = { id: this.nextFoodId++, x: tail.x + rand(-4, 4), y: tail.y + rand(-4, 4), r: rand(2, 4), color: w.color };
+        this.food.push(f);
+        this.foodAdded.push(f);
       }
     } else { w.boostCooldown = 0; }
 
@@ -1427,6 +1456,7 @@ class GameRoom {
       if (dist2(head.x, head.y, f.x, f.y) < rr * rr) {
         this.growWorm(w, f.r * 0.5);
         this.food.splice(i, 1);
+        this.foodRemovedIds.push(f.id);
       }
     }
   }
@@ -1483,19 +1513,63 @@ class GameRoom {
     this.removeDeadPlayers();
   }
 
+  // Round to keep JSON payload small — 1 decimal is visually indistinguishable
+  // for on-screen movement but cuts numeric string length roughly in half
+  // compared to full float64 precision (e.g. 1234.5 vs 1234.5678901234).
+  static r1(n) { return Math.round(n * 10) / 10; }
+
+  // Send only every Nth body segment. The client draws the body as a single
+  // traced path/curve, so a sparser polyline looks the same on screen while
+  // cutting the dominant cost of the snapshot (segment count can be in the
+  // hundreds per worm) by ~2/3.
+  static packSegs(segs) {
+    const out = [];
+    for (let i = 0; i < segs.length; i += 3) {
+      out.push(GameRoom.r1(segs[i].x), GameRoom.r1(segs[i].y));
+    }
+    // always include the true tail point so the body doesn't visually shrink
+    const last = segs[segs.length - 1];
+    if (segs.length % 3 !== 1) out.push(GameRoom.r1(last.x), GameRoom.r1(last.y));
+    return out;
+  }
+
+  // Full snapshot: sent once on join (welcome) so the client has a complete
+  // world state (all current food + worm bodies) to start from.
+  snapshotFull() {
+    const worms = [];
+    for (const w of this.worms.values()) {
+      worms.push({
+        id: w.id, name: w.name, color: w.color, isBot: w.isBot,
+        segs: GameRoom.packSegs(w.segs), angle: GameRoom.r1(w.angle), radius: GameRoom.r1(w.radius),
+        boosting: w.boosting, alive: w.alive, score: Math.round(w.score), len: w.segs.length,
+        invuln: w.invulnT > 0
+      });
+    }
+    const food = this.food.map(f => [f.id, GameRoom.r1(f.x), GameRoom.r1(f.y), GameRoom.r1(f.r), f.color]);
+    return { t: Date.now(), full: true, food, worms, events: [], worldSize: WORLD_SIZE };
+  }
+
+  // Delta snapshot: sent every tick. Worms still carry position/stats each
+  // tick (they move every tick, so that's irreducible), but food is sent as
+  // an add/remove delta instead of the full ~900-item array, since food is
+  // almost always unchanged between ticks.
   snapshot() {
     const worms = [];
     for (const w of this.worms.values()) {
       worms.push({
         id: w.id, name: w.name, color: w.color, isBot: w.isBot,
-        segs: w.segs, angle: w.angle, radius: w.radius,
-        boosting: w.boosting, alive: w.alive, score: w.score,
+        segs: GameRoom.packSegs(w.segs), angle: GameRoom.r1(w.angle), radius: GameRoom.r1(w.radius),
+        boosting: w.boosting, alive: w.alive, score: Math.round(w.score), len: w.segs.length,
         invuln: w.invulnT > 0
       });
     }
     const flushedEvents = this.events;
     this.events = [];
-    return { t: Date.now(), food: this.food, worms, events: flushedEvents, worldSize: WORLD_SIZE };
+    const foodAdd = this.foodAdded.map(f => [f.id, GameRoom.r1(f.x), GameRoom.r1(f.y), GameRoom.r1(f.r), f.color]);
+    const foodDel = this.foodRemovedIds;
+    this.foodAdded = [];
+    this.foodRemovedIds = [];
+    return { t: Date.now(), full: false, foodAdd, foodDel, worms, events: flushedEvents, worldSize: WORLD_SIZE };
   }
 }
 
@@ -1559,6 +1633,7 @@ class ApexWormRoom {
         const worm = this.room.addPlayer(socketId, safeName(msg.name), msg.color);
         entry.worm = worm;
         server.send(JSON.stringify({ type: 'welcome', id: worm.id, worldSize: WORLD_SIZE }));
+        server.send(JSON.stringify({ type: 'state', ...this.room.snapshotFull() }));
       } else if (msg.type === 'input' && entry.worm) {
         this.room.setInput(socketId, msg.angle, msg.boosting);
       } else if (msg.type === 'respawn') {
@@ -1566,6 +1641,7 @@ class ApexWormRoom {
         const worm = this.room.addPlayer(socketId, safeName(msg.name), msg.color);
         entry.worm = worm;
         server.send(JSON.stringify({ type: 'welcome', id: worm.id, worldSize: WORLD_SIZE }));
+        server.send(JSON.stringify({ type: 'state', ...this.room.snapshotFull() }));
       }
     });
 

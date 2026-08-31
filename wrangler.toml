@@ -5,7 +5,8 @@ compatibility_date = "2024-09-01"
 [observability]
 enabled = true
 
-# Durable Object yang menjalankan room multiplayer otoritatif (WebSocket + game loop)
+# Durable Object yang menjalankan room multiplayer otoritatif
+# (WebSocket + game loop)
 [[durable_objects.bindings]]
 name = "APEX_WORM_ROOM"
 class_name = "ApexWormRoom"

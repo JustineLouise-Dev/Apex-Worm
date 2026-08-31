@@ -58,6 +58,7 @@ export class ApexWormRoom {
         const worm = this.room.addPlayer(socketId, safeName(msg.name), msg.color);
         entry.worm = worm;
         server.send(JSON.stringify({ type: 'welcome', id: worm.id, worldSize: WORLD_SIZE }));
+        server.send(JSON.stringify({ type: 'state', ...this.room.snapshotFull() }));
       } else if (msg.type === 'input' && entry.worm) {
         this.room.setInput(socketId, msg.angle, msg.boosting);
       } else if (msg.type === 'respawn') {
@@ -65,6 +66,7 @@ export class ApexWormRoom {
         const worm = this.room.addPlayer(socketId, safeName(msg.name), msg.color);
         entry.worm = worm;
         server.send(JSON.stringify({ type: 'welcome', id: worm.id, worldSize: WORLD_SIZE }));
+        server.send(JSON.stringify({ type: 'state', ...this.room.snapshotFull() }));
       }
     });
 
