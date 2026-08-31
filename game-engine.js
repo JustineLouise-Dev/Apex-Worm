@@ -10,10 +10,10 @@
  */
 
 const WORLD_SIZE = 5000;
-const FOOD_COUNT = 900;
-const BOT_COUNT = 14;
-const BASE_SPEED = 2.6;
-const BOOST_SPEED = 5.0;
+const FOOD_COUNT = 2900;
+const BOT_COUNT = 114;
+const BASE_SPEED = 5.0;
+const BOOST_SPEED = 10.0;
 const TURN_RATE = 0.16;
 const START_LENGTH = 20;
 const FOOD_RADIUS_MIN = 4;
